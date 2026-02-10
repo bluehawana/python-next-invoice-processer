@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
@@ -13,7 +15,7 @@ export default function Home() {
   // Moved definition UP before usage to fix ReferenceError
   const fetchStatus = async () => {
     try {
-      const res = await fetch("http://localhost:8000/reconciliation-status");
+      const res = await fetch(`${API_URL}/reconciliation-status`);
       const data = await res.json();
       setRecords(data.records);
       if (data.config) setConfig(data.config);
@@ -31,7 +33,7 @@ export default function Home() {
     setLoading(true);
     setStatus("Phase 2: Connecting to Stripe and fetching Gmail invoices...");
     try {
-      const res = await fetch("http://localhost:8000/trigger-download?year=2025&month=12", {
+      const res = await fetch(`${API_URL}/trigger-download?year=2025&month=12`, {
         method: "POST",
       });
       const data = await res.json();
@@ -57,7 +59,7 @@ export default function Home() {
   const handlePrintSelected = async () => {
     if (selectedFiles.length === 0) return;
     try {
-      await fetch("http://localhost:8000/print-batch", {
+      await fetch(`${API_URL}/print-batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(selectedFiles),
@@ -79,7 +81,7 @@ export default function Home() {
 
   const handlePrint = async (filePath: string) => {
     try {
-      await fetch(`http://localhost:8000/print-file?file_path=${encodeURIComponent(filePath)}`, {
+      await fetch(`${API_URL}/print-file?file_path=${encodeURIComponent(filePath)}`, {
         method: "POST",
       });
       alert("Print job sent!");
@@ -100,7 +102,7 @@ export default function Home() {
 
   const handlePrintBatch = async (files: string[]) => {
     try {
-      await fetch("http://localhost:8000/print-batch", {
+      await fetch(`${API_URL}/print-batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(files),
@@ -122,7 +124,7 @@ export default function Home() {
     formData.append("file", e.target.files[0]);
 
     try {
-      const res = await fetch("http://localhost:8000/upload-paper", {
+      const res = await fetch(`${API_URL}/upload-paper`, {
         method: "POST",
         body: formData,
       });
@@ -282,7 +284,7 @@ export default function Home() {
                                 {record.files.map((file: string, idx: number) => (
                                   <a
                                     key={idx}
-                                    href={`http://localhost:8000/view-file?path=${encodeURIComponent(file)}`}
+                                    href={`${API_URL}/view-file?path=${encodeURIComponent(file)}`}
                                     target="_blank"
                                     className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 font-medium border border-blue-100 dark:border-blue-900 px-2 py-1 rounded"
                                     title={`View Invoice ${idx + 1}`}

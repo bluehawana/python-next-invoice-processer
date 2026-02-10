@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+python-multipart
+stripe
+requests
+pydantic
+boto3
+python-dotenv
+# Add any other missing dependencies here based on usage (e.g. Jinja2 if templates are used)
+Pillow
+pillow-heif
+pydantic-settings
+playwright
+fpdf
+pandas
