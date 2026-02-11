@@ -1,0 +1,5 @@
+# Proxy API requests to VPS backend
+/api/*  https://YOUR_VPS_IP:443/api/:splat  200
+
+# All other requests serve the static site
+/*  /index.html  200
