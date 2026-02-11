@@ -14,6 +14,19 @@ export default function Home() {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [hasMounted, setHasMounted] = useState(false);
 
+  // Calculate previous month (the month we're collecting invoices for)
+  const getPreviousMonth = () => {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return {
+      year: lastMonth.getFullYear(),
+      month: lastMonth.getMonth() + 1, // JavaScript months are 0-indexed
+      display: lastMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    };
+  };
+
+  const targetMonth = getPreviousMonth();
+
   // Moved definition UP before usage to fix ReferenceError
   const fetchStatus = async () => {
     try {
@@ -35,7 +48,7 @@ export default function Home() {
     setLoading(true);
     setStatus("Phase 2: Connecting to Stripe and fetching Gmail invoices...");
     try {
-      const res = await fetch(`${API_URL}/trigger-download?year=2025&month=12`, {
+      const res = await fetch(`${API_URL}/trigger-download?year=${targetMonth.year}&month=${targetMonth.month}`, {
         method: "POST",
       });
       const data = await res.json();
@@ -161,7 +174,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-lg px-4 py-2 text-sm font-medium">
-              <span className="text-slate-400">Period:</span> <span className="text-white ml-2">Dec 2025</span>
+              <span className="text-slate-400">Period:</span> <span className="text-white ml-2">{targetMonth.display}</span>
             </div>
             <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-lg px-4 py-2 text-sm">
               {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -206,7 +219,7 @@ export default function Home() {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-700">
               <span className="font-medium text-slate-300">Target Month</span>
-              <span className="text-blue-400 font-semibold">Dec 2025</span>
+              <span className="text-blue-400 font-semibold">{targetMonth.display}</span>
             </div>
 
             <button
