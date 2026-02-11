@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://invoices.bluehawana.com/api";
+const API_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+  ? "http://localhost:8000"
+  : "https://invoices.bluehawana.com/api";
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
