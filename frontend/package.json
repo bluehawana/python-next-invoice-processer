@@ -1,6 +1,8 @@
 {
-  "name": "frontend",
-  "version": "0.1.0",
+  "name": "invoice-management-system",
+  "version": "1.0.0",
+  "description": "Automated invoice collection and reconciliation system for Ichiban Sushi",
+  "author": "BlueHawana <hongyanab@gmail.com>",
   "private": true,
   "scripts": {
     "dev": "next dev",
