@@ -264,7 +264,8 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
         # Foodora: Faktura emails
         queries = [
             (f'(SUBJECT "Wolt payout report" {date_criteria})', "wolt"),
-            (f'(SUBJECT "Foodora" {date_criteria})', "foodora"),
+            # Foodora: use strict month boundary (invoices arrive same week, no need for extension)
+            (f'(SUBJECT "underlag" SUBJECT "Foodora" SINCE "{since_str}" BEFORE "{datetime.date(year, month + 1 if month < 12 else 1, 1).strftime("%d-%b-%Y")}")', "foodora"),
             (f'(FROM "restaurants.sweden@uber.com" {date_criteria})', "ubereats"),
         ]
 
@@ -296,6 +297,33 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
 
                         filename = part.get_filename()
                         if filename and filename.lower().endswith(".pdf"):
+                            # For Wolt: Only download the payout_report PDF (actual payout amount)
+                            # Skip the main invoice (fee invoice) and sales_report
+                            if partner_tag == "wolt":
+                                # Only keep payout_report - it has "Belopp utbetalning" (actual payout)
+                                if "sales_report" in filename.lower():
+                                    print(f"Skipping Wolt sales report: {filename}")
+                                    continue
+                                
+                                # For the main invoice (Ichiban_Sushi_YYYY-MM-DD_...), skip it
+                                # Main invoice filename has date pattern but no report type keyword
+                                is_payout_report = "payout_report" in filename.lower()
+                                is_main_invoice = not is_payout_report and re.search(r'\d{4}-\d{2}-\d{2}', filename)
+                                
+                                if is_main_invoice:
+                                    print(f"Skipping Wolt main fee invoice: {filename}")
+                                    continue
+                                
+                                # Check if payout_report date matches the target month
+                                # payout_report filename: Ichiban_Sushi__payout_report__semi_monthly__2026-02-01__2026-02-16.pdf
+                                date_match = re.search(r'(\d{4})-(\d{2})-\d{2}', filename)
+                                if date_match:
+                                    file_year = int(date_match.group(1))
+                                    file_month = int(date_match.group(2))
+                                    if file_year != year or file_month != month:
+                                        print(f"Skipping Wolt report from different month: {filename} ({file_year}-{file_month:02d})")
+                                        continue
+                            
                             # Prepend partner tag so reconciliation finds it
                             safe_filename = f"{partner_tag}_{num.decode()}_{filename}"
                             filepath = os.path.join(settings.INVOICE_STORAGE_PATH, safe_filename)
@@ -307,8 +335,32 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
                             downloaded_files.append(os.path.abspath(filepath))
                             found_pdf = True
                     
-                    # Fallback: Create PDF from body if no attachment found (e.g., Uber HTML emails)
-                    if not found_pdf:
+                    # Fallback: Create PDF from body if no attachment found
+                    # ONLY for Uber Eats (which sends HTML payment summaries)
+                    # Skip for Foodora/Wolt (they always have PDF attachments for real invoices)
+                    if not found_pdf and partner_tag == "ubereats":
+                        # Check subject for date range - skip if period starts in different month
+                        # Decode the subject first (it's MIME-encoded)
+                        from email.header import decode_header
+                        subj_raw = msg.get("Subject", "")
+                        decoded_parts = decode_header(subj_raw)
+                        subj_decoded = ""
+                        for part, encoding in decoded_parts:
+                            if isinstance(part, bytes):
+                                subj_decoded += part.decode(encoding or 'utf-8', errors='ignore')
+                            else:
+                                subj_decoded += part
+                        
+                        # Extract start and end dates from subject e.g. "2/23/26–3/1/26"
+                        period_match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{2,4})\s*[–-]\s*(\d{1,2})/(\d{1,2})/(\d{2,4})', subj_decoded)
+                        if period_match:
+                            start_m = int(period_match.group(1))
+                            end_m   = int(period_match.group(4))
+                            # Skip if the period ENDS in a different month (e.g. 2/23-3/1 ends in March)
+                            if end_m != month:
+                                print(f"Skipping Uber email - period ends in month {end_m}, not {month}: {subj_decoded[:60]}")
+                                continue
+                        
                         print(f"No PDF found for {partner_tag} (Subject: {subject}). Generating from email body...")
                         
                         # Try HTML first (Uber sends HTML emails)
@@ -323,6 +375,8 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
                             create_email_pdf(subject, body_text, filepath, partner_tag)
                             downloaded_files.append(os.path.abspath(filepath))
                             print(f"Generated PDF from email body: {safe_filename}")
+                    elif not found_pdf:
+                        print(f"Skipping {partner_tag} email without PDF attachment (likely promotional): {subject[:50]}")
 
         mail.close()
         mail.logout()

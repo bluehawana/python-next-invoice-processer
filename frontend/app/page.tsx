@@ -154,6 +154,40 @@ export default function Home() {
     }
   };
 
+  const handleSEBUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0]) return;
+
+    setLoading(true);
+    const fileName = e.target.files[0].name;
+    setStatus(`Processing SEB transaction file: ${fileName}...`);
+
+    const formData = new FormData();
+    formData.append("file", e.target.files[0]);
+
+    try {
+      const res = await fetch(`${API_URL}/upload-seb-transactions?year=${targetMonth.year}&month=${targetMonth.month}`, {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        setStatus(`Error: ${error.detail || 'Failed to process SEB file'}`);
+        return;
+      }
+
+      const data = await res.json();
+      setStatus(`✅ Bankgiro report generated! Found ${data.transactions_count} transaction days. Report ready for printing.`);
+      
+      // Refresh reconciliation status to show the new Bankgiro report
+      await fetchStatus();
+    } catch (err) {
+      setStatus("Error: Failed to process SEB transaction file.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-4 md:p-8 font-sans text-white">
       {/* Header with BlueHawana branding */}
@@ -287,6 +321,32 @@ export default function Home() {
           </label>
         </section>
 
+        {/* SEB Bankgiro Upload Card */}
+        <section className="bg-slate-800/40 backdrop-blur-sm p-6 md:p-8 rounded-xl border border-slate-700 hover:border-slate-600 transition-all">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
+              <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-semibold">SEB Bankgiro Transactions</h2>
+          </div>
+          <p className="text-slate-400 mb-6 text-sm">Upload SEB transaction export (CSV) to generate Bankgiro specification report for days with multiple payments.</p>
+
+          <label className="border-2 border-dashed border-slate-600 hover:border-green-500 rounded-xl p-8 flex flex-col items-center justify-center gap-4 hover:bg-slate-800/30 transition-all cursor-pointer group relative">
+            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleSEBUpload} accept=".csv,.xlsx,.xls" />
+            <div className="w-16 h-16 rounded-full bg-slate-700/50 group-hover:bg-green-500/20 flex items-center justify-center group-hover:scale-110 transition-all">
+              <svg className="w-8 h-8 text-slate-400 group-hover:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <div className="text-center">
+              <span className="text-sm font-medium text-slate-300 block mb-1">Upload SEB Export</span>
+              <span className="text-xs text-slate-500">CSV or Excel file</span>
+            </div>
+          </label>
+        </section>
+
         {/* Partner Status Section */}
         <section className="lg:col-span-2 bg-slate-800/40 backdrop-blur-sm p-6 md:p-8 rounded-xl border border-slate-700">
           <div className="flex items-center gap-3 mb-6">
@@ -391,9 +451,9 @@ export default function Home() {
                         <td className="py-4 px-4 text-right space-x-2">
                           {record.files && record.files.length > 0 && (
                             <div className="flex flex-col items-end gap-2">
-                              {/* View Buttons */}
-                              <div className="flex gap-2 flex-wrap justify-end">
-                                {record.files.slice(0, 3).map((file: string, idx: number) => (
+                              {/* View Buttons - Show ALL invoices */}
+                              <div className="flex gap-2 flex-wrap justify-end max-w-md">
+                                {record.files.map((file: string, idx: number) => (
                                   <a
                                     key={idx}
                                     href={`${API_URL}/view-file?path=${encodeURIComponent(file)}`}
@@ -404,9 +464,6 @@ export default function Home() {
                                     📄 {idx + 1}
                                   </a>
                                 ))}
-                                {record.files.length > 3 && (
-                                  <span className="text-xs text-slate-500 px-2 py-1">+{record.files.length - 3}</span>
-                                )}
                               </div>
                               <button
                                 onClick={() => handlePrintBatch(record.files)}

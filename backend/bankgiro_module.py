@@ -4,8 +4,103 @@ from fpdf import FPDF
 import os
 from stripe_module import settings
 import datetime
+import csv
+import io
 
 import requests
+
+def parse_seb_csv(file_content: bytes, year: int, month: int) -> List[Dict]:
+    """
+    Parses SEB transaction export CSV/Excel file.
+    Expected format: Date, Description, Amount, Balance, etc.
+    Groups by date and identifies Bankgiro transactions.
+    """
+    try:
+        # Try to read as CSV
+        content = file_content.decode('utf-8-sig')  # Handle BOM
+        lines = content.strip().split('\n')
+        
+        # Parse CSV
+        reader = csv.DictReader(io.StringIO(content))
+        transactions = []
+        
+        for row in reader:
+            # Adjust column names based on SEB export format
+            # Common formats: "Bokföringsdatum", "Transaktionsdatum", "Belopp", "Saldo"
+            date_str = row.get('Bokföringsdatum') or row.get('Transaktionsdatum') or row.get('Date')
+            amount_str = row.get('Belopp') or row.get('Amount')
+            description = row.get('Text') or row.get('Description') or row.get('Beskrivning', '')
+            
+            if not date_str or not amount_str:
+                continue
+                
+            # Parse date
+            try:
+                date = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+            except:
+                try:
+                    date = datetime.datetime.strptime(date_str, '%d/%m/%Y')
+                except:
+                    continue
+            
+            # Filter by month/year
+            if date.year != year or date.month != month:
+                continue
+            
+            # Parse amount (handle Swedish format: 1 234,56)
+            amount_str = amount_str.replace(' ', '').replace(',', '.')
+            try:
+                amount = float(amount_str)
+            except:
+                continue
+            
+            # Only include deposits (positive amounts)
+            if amount <= 0:
+                continue
+            
+            # Check if it's a Bankgiro transaction
+            if 'bankgiro' in description.lower() or 'bg' in description.lower():
+                transactions.append({
+                    'date': date.strftime('%Y-%m-%d'),
+                    'description': description,
+                    'amount': amount
+                })
+        
+        # Group by date
+        grouped = {}
+        for tx in transactions:
+            date = tx['date']
+            if date not in grouped:
+                grouped[date] = []
+            grouped[date].append(tx)
+        
+        # Format for report generation
+        result = []
+        serial = 1
+        for date, txs in sorted(grouped.items()):
+            result.append({
+                'date': date,
+                'serial': serial,
+                'count': len(txs),
+                'total': sum(t['amount'] for t in txs),
+                'transactions': [
+                    {
+                        'sender': t['description'][:50],
+                        'ref': '',
+                        'bg': '',
+                        'amount': t['amount']
+                    }
+                    for t in txs
+                ]
+            })
+            serial += 1
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error parsing SEB file: {e}")
+        return []
+
 
 def fetch_bankgiro_data(year: int, month: int) -> List[Dict]:
     """
@@ -69,7 +164,7 @@ def fetch_bankgiro_data(year: int, month: int) -> List[Dict]:
     
     return mock_data
 
-def generate_bankgiro_report(data: List[Dict]) -> str:
+def generate_bankgiro_report(data: List[Dict], year: int = 2025, month: int = 12) -> str:
     """
     Generates a PDF report for Bankgiro deposits with >1 transaction.
     """
@@ -78,8 +173,9 @@ def generate_bankgiro_report(data: List[Dict]) -> str:
     pdf.set_font("Arial", size=12)
     
     # Header
+    month_name = datetime.datetime(year, month, 1).strftime('%B %Y')
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(200, 10, txt="Bankgiro Specification - Dec 2025", ln=True, align='C')
+    pdf.cell(200, 10, txt=f"Bankgiro Specification - {month_name}", ln=True, align='C')
     pdf.set_font("Arial", size=10)
     pdf.cell(200, 10, txt="Hong Yan AB (BG: 291-9603)", ln=True, align='C')
     pdf.ln(10)
@@ -110,15 +206,16 @@ def generate_bankgiro_report(data: List[Dict]) -> str:
         # Transactions
         pdf.set_font("Arial", size=9)
         for tx in day['transactions']:
-            pdf.cell(70, 8, tx['sender'], 1)
+            pdf.cell(70, 8, tx['sender'][:30], 1)
             pdf.cell(50, 8, tx['ref'][:25], 1)
             pdf.cell(40, 8, tx['bg'], 1)
             pdf.cell(30, 8, f"{tx['amount']:,.2f}", 1, align='R')
             pdf.ln()
             
         pdf.ln(5)
-        
-    outfile = os.path.join(settings.INVOICE_STORAGE_PATH, "Bankgiro_Spec_Dec2025.pdf")
+    
+    month_str = f"{year}-{month:02d}"
+    outfile = os.path.join(settings.INVOICE_STORAGE_PATH, f"Bankgiro_Spec_{month_str}.pdf")
     if has_content:
         pdf.output(outfile)
         return outfile
