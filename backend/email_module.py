@@ -325,7 +325,9 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
                                         continue
                             
                             # Prepend partner tag so reconciliation finds it
-                            safe_filename = f"{partner_tag}_{num.decode()}_{filename}"
+                            # Sanitize filename: remove newlines, carriage returns, and extra spaces
+                            clean_filename = filename.replace('\n', '').replace('\r', '').replace('  ', ' ').strip()
+                            safe_filename = f"{partner_tag}_{num.decode()}_{clean_filename}"
                             filepath = os.path.join(settings.INVOICE_STORAGE_PATH, safe_filename)
                             
                             with open(filepath, "wb") as f:
