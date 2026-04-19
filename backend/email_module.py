@@ -58,11 +58,29 @@ def create_email_pdf(subject, body, filename, partner_tag=""):
         pdf.cell(0, 10, "Total försäljning", ln=True)
         pdf.ln(3)
         
-        # Extract values from body
-        total_match = re.search(r'Total Betalning[:\s]*([0-9.,]+)\s*kr', body, re.IGNORECASE)
-        orders_match = re.search(r'Beställningar\s*(\d+)', body, re.IGNORECASE)
+        # Extract values from body - convert Swedish format to simple format
+        def convert_to_simple(swedish_amount):
+            """Convert Swedish format (1 234,56) to simple format (1234.56)"""
+            if not swedish_amount:
+                return "0.00"
+            # Remove spaces (thousand separator), replace comma with dot
+            simple = swedish_amount.replace(" ", "").replace(",", ".")
+            return simple
         
-        total_amount = total_match.group(1) if total_match else "0,00"
+        # Extract all key values from the email body
+        # Note: HTML-to-text conversion adds extra spaces, so use \s+ to match multiple spaces
+        total_betalning_match = re.search(r'Total\s+Betalning\s+(-?[0-9.,]+)\s*kr', body, re.IGNORECASE)
+        totalbelopp_match = re.search(r'Totalbelopp\s+\d*\s*([0-9.,]+)\s*kr', body, re.IGNORECASE)
+        uber_fee_match = re.search(r'Uber\s+Eats-avgift\s+(-?[0-9.,]+)\s*kr', body, re.IGNORECASE)
+        moms_match = re.search(r'Moms\s+på\s+Uber\s+Eats-avgift\s+(-?[0-9.,]+)\s*kr', body, re.IGNORECASE)
+        netto_match = re.search(r'Nettoförsäljning\s+([0-9.,]+)\s*kr', body, re.IGNORECASE)
+        orders_match = re.search(r'Beställningar\s+(\d+)', body, re.IGNORECASE)
+        
+        total_amount = convert_to_simple(total_betalning_match.group(1)) if total_betalning_match else "0.00"
+        totalbelopp = convert_to_simple(totalbelopp_match.group(1)) if totalbelopp_match else None
+        uber_fee = convert_to_simple(uber_fee_match.group(1)) if uber_fee_match else None
+        moms = convert_to_simple(moms_match.group(1)) if moms_match else None
+        netto = convert_to_simple(netto_match.group(1)) if netto_match else None
         num_orders = orders_match.group(1) if orders_match else "0"
         
         # Draw boxes for Beställningar and Total Betalning
@@ -117,9 +135,10 @@ def create_email_pdf(subject, body, filename, partner_tag=""):
             # Match patterns like "12/17/25 3 881,00 kr" or "11/24/25 1 174,00 kr"
             day_match = re.match(r'(\d{1,2}/\d{1,2}/\d{2,4})\s+(\d+)\s+([0-9.,]+)\s*kr', line.strip())
             if day_match:
+                simple_amount = convert_to_simple(day_match.group(3))
                 pdf.cell(60, 6, day_match.group(1), ln=False)
                 pdf.cell(40, 6, day_match.group(2), align='C', ln=False)
-                pdf.cell(0, 6, f"{day_match.group(3)} kr", align='R', ln=True)
+                pdf.cell(0, 6, f"{simple_amount} kr", align='R', ln=True)
         
         pdf.ln(3)
         pdf.set_draw_color(220, 220, 220)
@@ -136,20 +155,15 @@ def create_email_pdf(subject, body, filename, partner_tag=""):
             pdf.cell(50, 6, label, ln=False)
             pdf.cell(0, 6, value, align='R', ln=True)
         
-        # Extract summary values
-        totalbelopp = re.search(r'Totalbelopp\s*\d*\s*([0-9.,]+)\s*kr', body)
-        uber_fee = re.search(r'Uber Eats-avgift\s*(-?[0-9.,]+)\s*kr', body)
-        moms = re.search(r'Moms på Uber Eats-avgift\s*(-?[0-9.,]+)\s*kr', body)
-        netto = re.search(r'Nettoförsäljning\s*([0-9.,]+)\s*kr', body)
-        
+        # Display summary values (already extracted above)
         if totalbelopp:
-            add_summary_line("Totalbelopp", f"{totalbelopp.group(1)} kr")
+            add_summary_line("Totalbelopp", f"{totalbelopp} kr")
         if uber_fee:
-            add_summary_line("Uber Eats-avgift", f"{uber_fee.group(1)} kr")
+            add_summary_line("Uber Eats-avgift", f"{uber_fee} kr")
         if moms:
-            add_summary_line("Moms på Uber Eats-avgift", f"{moms.group(1)} kr")
+            add_summary_line("Moms på Uber Eats-avgift", f"{moms} kr")
         if netto:
-            add_summary_line("Nettoförsäljning", f"{netto.group(1)} kr")
+            add_summary_line("Nettoförsäljning", f"{netto} kr")
         
         pdf.ln(5)
         

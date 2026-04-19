@@ -208,6 +208,67 @@ async def trigger_download(background_tasks: BackgroundTasks, year: int = 2025, 
     background_tasks.add_task(run_unified_workflow, year, month)
     return {"message": "Sync started"}
 
+@app.post("/generate-monthly-invoices")
+async def generate_monthly_invoices(year: int, month: int):
+    """
+    Generate all invoices for a specific month (Stripe, Uber, Wolt, Foodora).
+    Returns list of generated files.
+    """
+    print(f"Generating invoices for {year}-{month:02d}")
+    
+    # 1. Generate Stripe payouts
+    st_payouts = download_stripe_payouts(year, month)
+    payout_ids = [p['id'] for p in st_payouts]
+    stripe_pdfs = []
+    try:
+        stripe_pdfs = await generate_payout_reports(payout_ids)
+        print(f"✓ Generated {len(stripe_pdfs)} Stripe invoices")
+    except Exception as e:
+        print(f"✗ Stripe generation failed: {e}")
+    
+    # 2. Fetch email invoices (Uber, Wolt, Foodora)
+    email_files = fetch_email_invoices(year, month)
+    print(f"✓ Generated {len(email_files)} email invoices")
+    
+    all_files = stripe_pdfs + email_files
+    
+    # Return relative paths for frontend
+    relative_paths = [os.path.basename(f) for f in all_files]
+    
+    return {
+        "message": f"Generated {len(all_files)} invoices",
+        "year": year,
+        "month": month,
+        "files": relative_paths,
+        "stripe_count": len(stripe_pdfs),
+        "email_count": len(email_files)
+    }
+
+from fastapi.responses import FileResponse
+import zipfile
+import tempfile
+
+@app.get("/download-monthly-zip")
+async def download_monthly_zip(year: int, month: int):
+    """
+    Download all invoices for a specific month as a ZIP file.
+    """
+    # Create temp zip file
+    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+    
+    with zipfile.ZipFile(temp_zip.name, 'w') as zipf:
+        # Add all PDFs from the invoice storage
+        for filename in os.listdir(settings.INVOICE_STORAGE_PATH):
+            if filename.endswith('.pdf'):
+                file_path = os.path.join(settings.INVOICE_STORAGE_PATH, filename)
+                zipf.write(file_path, filename)
+    
+    return FileResponse(
+        temp_zip.name,
+        media_type='application/zip',
+        filename=f'invoices_{year}_{month:02d}.zip'
+    )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
