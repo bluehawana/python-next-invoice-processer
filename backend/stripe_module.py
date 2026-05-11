@@ -55,18 +55,6 @@ def download_stripe_payouts(year: int, month: int) -> List[Dict]:
             limit=100
         )
         
-        # Filter out payouts that don't match handwritten records (e.g., 4775.15 is extra)
-        # These are amounts that appear in Stripe API but not in handwritten records
-        known_amounts = [553.9, 612.02, 1120.28, 4033.93, 150.87, 507.44, 446.54, 419.78, 2187.88, 144.96, 262.18, 653.22, 270.22, 375.45, 818.87, 125.26, 1682.07, 174.51, 438.49, 904.73]
-        filtered = []
-        for p in payouts:
-            amount_kr = p.amount / 100.0
-            if amount_kr in known_amounts:
-                filtered.append(p)
-            else:
-                print(f"Skipping payout {p.id}: {amount_kr} kr (not in handwritten records)")
-        payouts = filtered
-        
         results = []
         for p in payouts.auto_paging_iter():
             results.append({

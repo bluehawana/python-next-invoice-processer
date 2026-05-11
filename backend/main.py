@@ -40,6 +40,30 @@ app.mount("/static/invoices", StaticFiles(directory=settings.INVOICE_STORAGE_PAT
 handwritten_records = {}
 reconciliation_results = []
 
+@app.on_event("startup")
+async def startup_auto_reconcile():
+    """On startup, auto-reconcile using any PDFs already on disk so state survives restarts."""
+    global reconciliation_results
+    import glob
+    import datetime
+
+    # Use current previous month
+    now = datetime.datetime.now()
+    first_of_this_month = now.replace(day=1)
+    last_month = first_of_this_month - datetime.timedelta(days=1)
+    year, month = last_month.year, last_month.month
+
+    existing_files = glob.glob(os.path.join(settings.INVOICE_STORAGE_PATH, "*.pdf"))
+    if existing_files:
+        print(f"[STARTUP] Found {len(existing_files)} existing PDFs, auto-reconciling...")
+        # Fetch stripe payouts for the month so amounts can be matched
+        try:
+            st_payouts = download_stripe_payouts(year, month)
+        except Exception:
+            st_payouts = []
+        reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, existing_files)
+        print(f"[STARTUP] Auto-reconcile complete: {len(reconciliation_results)} partners")
+
 # --- Background Workflows ---
 async def run_unified_workflow(year: int, month: int):
     global reconciliation_results
