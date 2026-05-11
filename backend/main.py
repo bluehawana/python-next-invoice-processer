@@ -95,6 +95,15 @@ async def run_unified_workflow(year: int, month: int):
     
     all_files = email_files + stripe_pdfs
 
+    # Also include any existing PDFs already on disk (from previous syncs)
+    import glob as _glob
+    invoice_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), settings.INVOICE_STORAGE_PATH))
+    existing = _glob.glob(os.path.join(invoice_dir, "*.pdf"))
+    existing_basenames = {os.path.basename(f) for f in all_files}
+    for f in existing:
+        if os.path.basename(f) not in existing_basenames:
+            all_files.append(f)
+
     # 2. Reconcile - use handwritten_records if uploaded, otherwise use hardcoded default
     reconciliation_results = reconcile_invoices(handwritten_records if handwritten_records else {}, st_payouts, all_files)
     print(f"--- Sync Completed. {len(all_files)} files stored on VPS. ---")
