@@ -47,18 +47,19 @@ async def startup_auto_reconcile():
     import glob
     import datetime
 
-    # Use current previous month
-    now = datetime.datetime.now()
-    first_of_this_month = now.replace(day=1)
-    last_month = first_of_this_month - datetime.timedelta(days=1)
-    year, month = last_month.year, last_month.month
+    # Use absolute path to avoid relative path issues with systemd
+    invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
+    os.makedirs(invoice_dir, exist_ok=True)
 
-    existing_files = glob.glob(os.path.join(settings.INVOICE_STORAGE_PATH, "*.pdf"))
+    existing_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
+    print(f"[STARTUP] Invoice dir: {invoice_dir}")
+    print(f"[STARTUP] Found {len(existing_files)} existing PDFs, auto-reconciling...")
     if existing_files:
-        print(f"[STARTUP] Found {len(existing_files)} existing PDFs, auto-reconciling...")
-        # Fetch stripe payouts for the month so amounts can be matched
         try:
-            st_payouts = download_stripe_payouts(year, month)
+            now = datetime.datetime.now()
+            first_of_this_month = now.replace(day=1)
+            last_month = first_of_this_month - datetime.timedelta(days=1)
+            st_payouts = download_stripe_payouts(last_month.year, last_month.month)
         except Exception:
             st_payouts = []
         reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, existing_files)
