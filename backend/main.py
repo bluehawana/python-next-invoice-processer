@@ -95,8 +95,8 @@ async def run_unified_workflow(year: int, month: int):
     
     all_files = email_files + stripe_pdfs
 
-    # 2. Reconcile - files stay local on VPS (no R2 upload)
-    reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, all_files)
+    # 2. Reconcile - use handwritten_records if uploaded, otherwise use hardcoded default
+    reconciliation_results = reconcile_invoices(handwritten_records if handwritten_records else {}, st_payouts, all_files)
     print(f"--- Sync Completed. {len(all_files)} files stored on VPS. ---")
 
 # --- Endpoints ---
