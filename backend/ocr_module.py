@@ -23,7 +23,7 @@ def process_handwritten_image(image_path: str) -> Dict[str, List[float]]:
     # In a real implementation, we'd call a Vision LLM (like Gemini).
     # For now, we use the parsed data from the April 2026 handwritten records.
     dummy_data = {
-        "Stripe (inc. Hem)": [553.9, 612.02, 1120.28, 4033.93, 150.87, 507.44, 446.54, 419.78, 2187.88, 144.96, 262.18, 653.22, 270.22, 375.45, 818.87, 125.26, 1682.07, 174.51, 438.49, 904.73],
+        "Stripe (inc. Hem)": [553.9, 612.02, 1120.28, 4033.93, 150.87, 507.44, 446.54, 419.78, 2187.88, 144.96, 262.18, 653.22, 270.22, 375.45, 818.87, 125.26, 1682.07, 174.51, 438.49, 904.73, 4775.15],
         "Swish": [129.0, 139.0, 268.0, 139.0]
     }
     
@@ -36,10 +36,10 @@ def reconcile_invoices(handwritten_data: Dict[str, List[float]], stripe_payouts:
     # If no handwritten data provided, use the April 2026 records as default
     if not handwritten_data:
         handwritten_data = {
-            "Wolt": [3234.64, 1668.34],
-            "Uber": [1017.25, 2540.20, 1431.3, 2132.0],
+            "Wolt": [3234.64, 1668.34, 1472.89],
+            "Uber": [1017.25, 2540.20, 1431.3, 2132.0, 494.65, 1410.5],
             "Foodora": [23032.01, 12107.98, 16007.75, 11844.8],
-            "Stripe (inc. Hem)": [553.9, 612.02, 1120.28, 4033.93, 150.87, 507.44, 446.54, 419.78, 2187.88, 144.96, 262.18, 653.22, 270.22, 375.45, 818.87, 125.26, 1682.07, 174.51, 438.49, 904.73],
+            "Stripe (inc. Hem)": [553.9, 612.02, 1120.28, 4033.93, 150.87, 507.44, 446.54, 419.78, 2187.88, 144.96, 262.18, 653.22, 270.22, 375.45, 818.87, 125.26, 1682.07, 174.51, 438.49, 904.73, 4775.15],
             "Swish": [129.0, 139.0, 268.0, 139.0]
         }
     results = []
