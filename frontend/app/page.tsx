@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 
 const API_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
-  ? "http://localhost:8000"
+  ? "http://localhost:8003"
   : "https://api.bluehawana.com";
 
 export default function Home() {
@@ -412,14 +412,14 @@ export default function Home() {
                       </th>
                       <th className="py-3 px-4 font-semibold text-slate-400">Partner</th>
                       <th className="py-3 px-4 font-semibold text-slate-400">Status</th>
-                      <th className="py-3 px-4 font-semibold text-slate-400">Records</th>
+                      <th className="py-3 px-4 font-semibold text-slate-400">Handwritten → Invoice Match</th>
                       <th className="py-3 px-4 font-semibold text-slate-400 text-right">Total (SEK)</th>
                       <th className="py-3 px-4 font-semibold text-slate-400 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {records.map((record) => (
-                      <tr key={record.partner} className="border-b border-slate-800 last:border-0 hover:bg-slate-800/30 transition-colors">
+                      <tr key={record.partner} className="border-b border-slate-800 last:border-0 hover:bg-slate-800/30 transition-colors align-top">
                         <td className="py-4 px-4">
                           {record.files && record.files.length > 0 && (
                             <input
@@ -434,32 +434,75 @@ export default function Home() {
                         <td className="py-4 px-4">
                           {record.reconciled ? (
                             <span className="px-2 py-1 bg-green-500/20 text-green-400 border border-green-500/30 rounded-md text-xs font-bold uppercase tracking-wider">
-                              ✓ Reconciled
+                              ✓ Matched
+                            </span>
+                          ) : record.handwritten_count === 0 ? (
+                            <span className="px-2 py-1 bg-slate-600/20 text-slate-400 border border-slate-600/30 rounded-md text-xs font-bold uppercase tracking-wider">
+                              No Handwriting
                             </span>
                           ) : (
                             <span className="px-2 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md text-xs font-bold uppercase tracking-wider">
-                              {record.matched_count}/{record.handwritten_count} Linked
+                              {record.matched_count}/{record.handwritten_count} Matched
                             </span>
                           )}
                         </td>
-                        <td className="py-4 px-4 text-slate-400 text-xs max-w-xs truncate">
-                          {record.amounts?.length > 0 ? `${record.amounts.length} entries` : 'No data'}
+                        <td className="py-4 px-4 text-xs max-w-sm">
+                          {/* Matched pairs */}
+                          {record.matches && record.matches.length > 0 && (
+                            <div className="space-y-1">
+                              {record.matches.map((m: any, i: number) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <span className="text-slate-300 font-mono">{Number(m.hw).toLocaleString('sv-SE', {minimumFractionDigits: 2})} kr</span>
+                                  <span className="text-slate-500">→</span>
+                                  <span className="text-green-400 font-mono">{m.pdf != null ? Number(m.pdf).toLocaleString('sv-SE', {minimumFractionDigits: 2}) + ' kr' : 'linked'}</span>
+                                  {m.diff != null && m.diff > 0 && (
+                                    <span className="text-amber-500/70 text-[10px]">(Δ{Number(m.diff).toFixed(2)})</span>
+                                  )}
+                                  {m.file && (
+                                    <a href={`${API_URL}/view-file?path=${encodeURIComponent(m.file)}`} target="_blank"
+                                      className="text-blue-400 hover:text-blue-300 text-[10px] border border-blue-500/20 bg-blue-500/10 px-1 rounded">📄</a>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {/* Unmatched handwritten amounts */}
+                          {record.unmatched && record.unmatched.length > 0 && (
+                            <div className="space-y-1 mt-1">
+                              {record.unmatched.map((amt: number, i: number) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <span className="text-slate-300 font-mono">{Number(amt).toLocaleString('sv-SE', {minimumFractionDigits: 2})} kr</span>
+                                  <span className="text-red-400 text-[10px] border border-red-500/30 bg-red-500/10 px-1 rounded">no invoice found</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {/* Files with no handwritten record */}
+                          {(!record.matches || record.matches.length === 0) && (!record.unmatched || record.unmatched.length === 0) && record.files && record.files.length > 0 && (
+                            <span className="text-slate-500 italic">
+                              {record.files.length} invoice{record.files.length > 1 ? 's' : ''} found, upload handwritten record to match
+                            </span>
+                          )}
+                          {(!record.files || record.files.length === 0) && record.amounts?.length > 0 && (
+                            <span className="text-amber-500/70 italic">No invoice found in email</span>
+                          )}
                         </td>
                         <td className="py-4 px-4 text-right font-bold text-cyan-400">
-                          {record.handwritten_total?.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr
+                          {record.handwritten_total > 0
+                            ? record.handwritten_total.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr'
+                            : '—'}
                         </td>
-                        <td className="py-4 px-4 text-right space-x-2">
+                        <td className="py-4 px-4 text-right">
                           {record.files && record.files.length > 0 && (
                             <div className="flex flex-col items-end gap-2">
-                              {/* View Buttons - Show ALL invoices */}
-                              <div className="flex gap-2 flex-wrap justify-end max-w-md">
+                              <div className="flex gap-1.5 flex-wrap justify-end max-w-xs">
                                 {record.files.map((file: string, idx: number) => (
                                   <a
                                     key={idx}
                                     href={`${API_URL}/view-file?path=${encodeURIComponent(file)}`}
                                     target="_blank"
                                     className="text-xs text-blue-400 hover:text-blue-300 font-medium border border-blue-500/30 bg-blue-500/10 px-2 py-1 rounded transition-colors"
-                                    title={`View Invoice ${idx + 1}`}
+                                    title={file.split('/').pop()}
                                   >
                                     📄 {idx + 1}
                                   </a>
@@ -472,7 +515,7 @@ export default function Home() {
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                                 </svg>
-                                Print All ({record.files.length})
+                                Print ({record.files.length})
                               </button>
                             </div>
                           )}

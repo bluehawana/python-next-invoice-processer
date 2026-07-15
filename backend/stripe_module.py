@@ -5,6 +5,8 @@ from pydantic_settings import BaseSettings
 import datetime
 
 class Settings(BaseSettings):
+    OPENAI_API_KEY: str = ""
+    ZAI_API_KEY: str = ""
     STRIPE_API_KEY: str = ""
     FOODORA_USER: str = ""
     FOODORA_PASS: str = ""
@@ -59,15 +61,16 @@ def download_stripe_payouts(year: int, month: int) -> List[Dict]:
         for p in payouts.auto_paging_iter():
             results.append({
                 "id": p.id,
-                "amount": p.amount / 100.0, # Stripe uses subunits
+                "amount": p.amount / 100.0,
                 "currency": p.currency.upper(),
                 "arrival_date": datetime.datetime.fromtimestamp(p.arrival_date).strftime('%Y-%m-%d'),
+                "arrival_ts": p.arrival_date,   # keep raw timestamp for sorting
                 "status": p.status,
-                # Note: Stripe API doesn't provide a direct PDF for payouts easily.
-                # Usually requires pulling Balance Transactions or using the Dashboard URL.
                 "report_url": f"https://dashboard.stripe.com/payouts/{p.id}"
             })
-        
+
+        # Sort by arrival date ascending (earliest first = matches handwritten order)
+        results.sort(key=lambda x: x["arrival_ts"])
         return results
     except Exception as e:
         print(f"Error fetching Stripe payouts: {e}")

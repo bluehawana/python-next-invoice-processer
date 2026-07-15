@@ -255,21 +255,36 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
 
         import datetime
         
-        # Calculate IMAP date strings
-        start_date = datetime.date(year, month, 1)
-        # Extend end date by ~2 weeks to catch invoices sent after month end
-        # (e.g., Uber sends last weekly summary in early January for December)
-        if month == 12:
-            end_date = datetime.date(year + 1, 1, 15)
+        # Search window:
+        # - Start 2 weeks BEFORE the target month → catches invoices for work
+        #   done in the previous month but paid/sent in early target month
+        #   (e.g. Foodora Apr 23-30 invoice arrives May 1, Wolt Apr 16-May 1 arrives May 1)
+        # - End 2 weeks AFTER the month end → catches invoices sent late
+        #   (e.g. Uber weekly summary for last week of month arrives early next month)
+        if month == 1:
+            search_start = datetime.date(year - 1, 12, 15)
         else:
-            end_date = datetime.date(year, month + 1, 15)
-        
-        # Format: "01-Dec-2025"
-        since_str = start_date.strftime("%d-%b-%Y")
-        before_str = end_date.strftime("%d-%b-%Y")
-        
+            search_start = datetime.date(year, month - 1, 15)
+
+        if month == 12:
+            search_end = datetime.date(year + 1, 1, 15)
+        else:
+            search_end = datetime.date(year, month + 1, 15)
+
+        # Strict month boundary used for Foodora subject search
+        month_start = datetime.date(year, month, 1)
+        if month == 12:
+            month_end = datetime.date(year + 1, 1, 1)
+        else:
+            month_end = datetime.date(year, month + 1, 1)
+
+        since_str  = search_start.strftime("%d-%b-%Y")
+        before_str = search_end.strftime("%d-%b-%Y")
+        month_start_str = month_start.strftime("%d-%b-%Y")
+        month_end_str   = month_end.strftime("%d-%b-%Y")
+
         date_criteria = f'(SINCE "{since_str}" BEFORE "{before_str}")'
-        print(f"Fetching emails from {since_str} to {before_str}...")
+        print(f"Fetching emails from {since_str} to {before_str} (target month: {year}-{month:02d})...")
 
         processed_ids = set()
         # Specific search queries for each partner
@@ -328,14 +343,15 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
                                     print(f"Skipping Wolt main fee invoice: {filename}")
                                     continue
                                 
-                                # Check if payout_report date matches the target month
-                                # payout_report filename: Ichiban_Sushi__payout_report__semi_monthly__2026-02-01__2026-02-16.pdf
-                                date_match = re.search(r'(\d{4})-(\d{2})-\d{2}', filename)
-                                if date_match:
-                                    file_year = int(date_match.group(1))
-                                    file_month = int(date_match.group(2))
-                                    if file_year != year or file_month != month:
-                                        print(f"Skipping Wolt report from different month: {filename} ({file_year}-{file_month:02d})")
+                                # Check if payout_report covers the target month
+                                # payout_report filename: Ichiban_Sushi__payout_report__semi_monthly__2026-04-16__2026-05-01.pdf
+                                # Accept if EITHER the start date OR end date falls in target month
+                                # (covers: Apr 16–May 1 paid in May, May 1–16 paid in May, May 16–Jun 1 paid in May)
+                                all_dates = re.findall(r'(\d{4})-(\d{2})-\d{2}', filename)
+                                if all_dates:
+                                    months_in_filename = [(int(y), int(m)) for y, m in all_dates]
+                                    if not any(y == year and m == month for y, m in months_in_filename):
+                                        print(f"Skipping Wolt report not related to {year}-{month:02d}: {filename}")
                                         continue
                             
                             # Prepend partner tag so reconciliation finds it
@@ -367,14 +383,17 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
                             else:
                                 subj_decoded += part
                         
-                        # Extract start and end dates from subject e.g. "2/23/26–3/1/26"
+                        # Extract start and end dates from subject e.g. "4/27/26–5/10/26"
                         period_match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{2,4})\s*[–-]\s*(\d{1,2})/(\d{1,2})/(\d{2,4})', subj_decoded)
                         if period_match:
                             start_m = int(period_match.group(1))
                             end_m   = int(period_match.group(4))
-                            # Skip if the period ENDS in a different month (e.g. 2/23-3/1 ends in March)
-                            if end_m != month:
-                                print(f"Skipping Uber email - period ends in month {end_m}, not {month}: {subj_decoded[:60]}")
+                            # Keep if EITHER start OR end month is the target month
+                            # e.g. 4/27–5/10 → start=4, end=5 → keep for May
+                            # e.g. 5/18–5/24 → start=5, end=5 → keep for May
+                            # e.g. 6/1–6/7   → start=6, end=6 → skip for May
+                            if start_m != month and end_m != month:
+                                print(f"Skipping Uber email - period {start_m}/{end_m} not in month {month}: {subj_decoded[:60]}")
                                 continue
                         
                         print(f"No PDF found for {partner_tag} (Subject: {subject}). Generating from email body...")

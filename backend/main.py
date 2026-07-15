@@ -51,14 +51,22 @@ async def startup_auto_reconcile():
     invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
     os.makedirs(invoice_dir, exist_ok=True)
 
+    # Determine previous month
+    now = datetime.datetime.now()
+    first_of_this_month = now.replace(day=1)
+    last_month = first_of_this_month - datetime.timedelta(days=1)
+
     existing_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
+    # Filter to previous month only
+    existing_files = [
+        f for f in existing_files
+        if datetime.datetime.fromtimestamp(os.path.getmtime(f)).year == last_month.year
+        and datetime.datetime.fromtimestamp(os.path.getmtime(f)).month == last_month.month
+    ]
     print(f"[STARTUP] Invoice dir: {invoice_dir}")
     print(f"[STARTUP] Found {len(existing_files)} existing PDFs, auto-reconciling...")
     if existing_files:
         try:
-            now = datetime.datetime.now()
-            first_of_this_month = now.replace(day=1)
-            last_month = first_of_this_month - datetime.timedelta(days=1)
             st_payouts = download_stripe_payouts(last_month.year, last_month.month)
         except Exception:
             st_payouts = []
@@ -95,17 +103,8 @@ async def run_unified_workflow(year: int, month: int):
     
     all_files = email_files + stripe_pdfs
 
-    # Also include any existing PDFs already on disk (from previous syncs)
-    import glob as _glob
-    invoice_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), settings.INVOICE_STORAGE_PATH))
-    existing = _glob.glob(os.path.join(invoice_dir, "*.pdf"))
-    existing_basenames = {os.path.basename(f) for f in all_files}
-    for f in existing:
-        if os.path.basename(f) not in existing_basenames:
-            all_files.append(f)
-
-    # 2. Reconcile - use handwritten_records if uploaded, otherwise use hardcoded default
-    reconciliation_results = reconcile_invoices(handwritten_records if handwritten_records else {}, st_payouts, all_files)
+    # 2. Reconcile
+    reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, all_files)
     print(f"--- Sync Completed. {len(all_files)} files stored on VPS. ---")
 
 # --- Endpoints ---
@@ -172,6 +171,44 @@ async def upload_paper(file: UploadFile = File(...)):
     reconciliation_results = reconcile_invoices(handwritten_records, [], [])
     
     return {"message": "OCR Complete. Recognition results loaded.", "results": reconciliation_results}
+
+class ManualHandwrittenInput(BaseModel):
+    """Manual input of handwritten amounts when OCR is not available."""
+    records: Dict[str, List[float]]
+
+@app.post("/upload-handwritten-manual")
+async def upload_handwritten_manual(data: ManualHandwrittenInput):
+    """
+    Manually enter handwritten amounts when OCR/vision API is unavailable.
+    Example body: {"records": {"Wolt": [3234.64, 1668.34], "Uber": [1017.25]}}
+    """
+    global handwritten_records, reconciliation_results
+    
+    # Normalise keys to handle "Uber Eats" → "Uber", "Hem" → "Stripe"
+    normalised = {}
+    for partner, amounts in data.records.items():
+        p_lower = partner.lower().strip()
+        if "wolt" in p_lower:
+            normalised["Wolt"] = amounts
+        elif "uber" in p_lower:
+            normalised["Uber"] = amounts
+        elif "foodora" in p_lower:
+            normalised["Foodora"] = amounts
+        elif "stripe" in p_lower or "hem" in p_lower:
+            normalised["Stripe"] = amounts
+        elif "swish" in p_lower:
+            normalised["Swish"] = amounts
+        else:
+            normalised[partner] = amounts
+    
+    handwritten_records = normalised
+    reconciliation_results = reconcile_invoices(handwritten_records, [], [])
+    
+    return {
+        "message": f"Manual records loaded: {len(normalised)} partners",
+        "records": normalised,
+        "results": reconciliation_results
+    }
 
 @app.get("/reconciliation-status")
 def get_reconciliation_status():
