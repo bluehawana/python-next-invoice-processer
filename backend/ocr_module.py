@@ -157,13 +157,58 @@ def _encode_image_base64(image_path: str) -> str:
 
 def _call_vision_api(image_b64: str) -> str:
     """
-    Call Z.AI GLM-4.5V vision (OpenAI-compatible) to extract handwritten amounts.
-    Falls back to OpenAI gpt-4o if ZAI_API_KEY is not set.
+    Call vision API to extract handwritten amounts.
+    Tries in order: Ollama (local), Z.AI, OpenAI
     """
     try:
         import openai
 
-        # Prefer Z.AI, fall back to OpenAI
+        # Try Ollama first (local, free)
+        ollama_available = os.getenv("OLLAMA_HOST") or "http://localhost:11434"
+        try:
+            print("[OCR] Trying Ollama llama3.2-vision (local)")
+            client = openai.OpenAI(
+                api_key="ollama",  # Ollama doesn't need a key
+                base_url=f"{ollama_available}/v1",
+            )
+            model = "llava:13b"
+            # Test if Ollama is available
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_b64}"
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": (
+                                    "This is a handwritten income record for a Swedish restaurant (Ichiban Sushi). "
+                                    "Please extract all the amounts listed for each delivery partner. "
+                                    "The partners are typically: Wolt, Uber Eats (or Uber), Foodora, Stripe (or Hem/Hemleverans), Swish. "
+                                    "Return ONLY a JSON object like:\n"
+                                    '{"Wolt": [3234.64, 1668.34], "Uber": [1017.25, 2540.20], "Foodora": [23032.01], "Stripe": [1389.85], "Swish": [129.0]}\n'
+                                    "Use the amounts exactly as written (convert Swedish format 1 234,56 → 1234.56). "
+                                    "Ignore any totals/sums rows. "
+                                    "If a partner has no amounts, omit it. Return valid JSON only, no markdown."
+                                )
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=1000,
+            )
+            print("[OCR] ✓ Using Ollama llama3.2-vision (local)")
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"[OCR] Ollama not available: {e}")
+        
+        # Fall back to Z.AI
         zai_key = os.getenv("ZAI_API_KEY")
         oai_key = os.getenv("OPENAI_API_KEY")
 
@@ -179,7 +224,7 @@ def _call_vision_api(image_b64: str) -> str:
             client = openai.OpenAI(api_key=oai_key)
             model = "gpt-4o"
         else:
-            raise ValueError("Neither ZAI_API_KEY nor OPENAI_API_KEY is set in .env")
+            raise ValueError("No vision API available: install Ollama or set ZAI_API_KEY/OPENAI_API_KEY")
 
         response = client.chat.completions.create(
             model=model,
@@ -249,15 +294,8 @@ def _parse_ocr_response(response_text: str) -> Dict[str, List[float]]:
 def process_handwritten_image(image_path: str) -> Dict[str, List[float]]:
     """
     Processes the handwritten paper image to extract income records.
-    Uses Z.AI GLM-4V (ZAI_API_KEY) or OpenAI GPT-4o (OPENAI_API_KEY).
+    Uses Ollama (local), Z.AI GLM-4V, or OpenAI GPT-4o (in that order).
     """
-    zai_key = os.getenv("ZAI_API_KEY")
-    oai_key = os.getenv("OPENAI_API_KEY")
-
-    if not zai_key and not oai_key:
-        print("[OCR] WARNING: No vision API key set (ZAI_API_KEY or OPENAI_API_KEY).")
-        return {}
-
     print(f"[OCR] Processing image: {image_path}")
     try:
         image_b64 = _encode_image_base64(image_path)
