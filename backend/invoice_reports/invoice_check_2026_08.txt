@@ -1,0 +1,28 @@
+
+================================================================================
+INVOICE COMPLETENESS REPORT - 2026-08
+================================================================================
+
+Partner              Found      Expected        Status         
+--------------------------------------------------------------------------------
+Uber Eats            0          3-5             ❌ MISSING      
+Foodora              2          2               ✅ OK           
+Wolt                 2          2               ✅ OK           
+
+================================================================================
+
+🚨 CRITICAL ISSUES (2):
+--------------------------------------------------------------------------------
+❌ Uber Eats: NO EMAILS found for 2026-08
+   → Check Uber Eats dashboard manually: https://restaurant.uber.com
+
+💡 RECOMMENDED ACTIONS:
+--------------------------------------------------------------------------------
+1. Check Uber Eats dashboard manually for missing payouts
+   URL: https://restaurant.uber.com
+   Create manual invoices for any missing weeks
+
+4. Run invoice generation after fixing issues:
+   python generate_invoices.py 2026 8
+
+================================================================================

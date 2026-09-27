@@ -1,0 +1,15 @@
+{
+  "month": "2026-08",
+  "handwritten_amounts": {
+    "Foodora": [20615.75, 2716.65, 9602.19, 13304.28],
+    "Uber": [677.95, 3075.15, 2904.20],
+    "Wolt": ["2 invoices - need to extract amounts"],
+    "Stripe": ["16 payments - need to extract from Stripe data"]
+  },
+  "totals": {
+    "Foodora": 46238.87,
+    "Uber": 6657.30,
+    "Wolt": "TBD",
+    "Stripe": "TBD"
+  }
+}

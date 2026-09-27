@@ -1,0 +1,52 @@
+# SSH Configuration for MacBook Pro M5 Max
+# Location: ~/.ssh/config
+
+# RackNerd - Invoice Processor
+Host racknerd
+  HostName 107.175.235.220
+  User harvad
+  Port 22
+  IdentityFile ~/.ssh/id_ed25519_mbp
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+
+# AlphaVPS - Main Server (blocked at office, use talpha instead)
+Host alphavps
+  HostName 94.72.141.71
+  User harvad
+  Port 1025
+  IdentityFile ~/.ssh/id_ed25519_mbp
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+
+# Tailscale VPS - Root access (works from anywhere including office!)
+Host talpha
+  HostName 100.120.173.48
+  User root
+  IdentityFile ~/.ssh/id_ed25519_mbp
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+
+# Tailscale VPS - Admin workspace
+Host topen
+  HostName 100.120.173.48
+  User admin
+  IdentityFile ~/.ssh/id_ed25519_mbp
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+
+# AWS EC2
+Host ec2u1
+  HostName ec2-51-20-31-28.eu-north-1.compute.amazonaws.com
+  User ubuntu
+  IdentityFile ~/.ssh/clawone26.pem
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+
+# Mac Mini (for syncing)
+Host macmini
+  HostName macmini.local
+  User harvadlee
+  IdentityFile ~/.ssh/id_ed25519_mbp
+  ServerAliveInterval 60
+  ServerAliveCountMax 3

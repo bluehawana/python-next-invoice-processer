@@ -1,0 +1,7 @@
+#!/bin/bash
+# ONE-COMMAND INVOICE SYNC
+# Usage: ./sync 2026 8 ~/Downloads/photo.heic
+
+cd "$(dirname "$0")/backend"
+source venv/bin/activate
+python auto_sync.py "$@"

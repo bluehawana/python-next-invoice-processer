@@ -1,0 +1,33 @@
+{
+  "month": "2026-08",
+  "partners": {
+    "Wolt": [
+      2065.15,
+      2196.65
+    ],
+    "Uber": [
+      677.95,
+      "UNCLEAR",
+      2186.00,
+      2286.57
+    ],
+    "Foodora": [
+      918.12,
+      "UNCLEAR",
+      1234.17
+    ],
+    "Swish": [
+      1644.44,
+      1234.17,
+      2345.20,
+      "UNCLEAR",
+      2065.18
+    ],
+    "Stripe": [
+      "UNCLEAR",
+      2171.00,
+      651.80
+    ]
+  },
+  "notes": "Some amounts are unclear due to handwriting. Please verify and update."
+}

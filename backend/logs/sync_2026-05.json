@@ -1,0 +1,265 @@
+{
+  "month": "2026-05",
+  "records": [
+    {
+      "partner": "Foodora",
+      "handwritten_total": 76385.56999999999,
+      "handwritten_count": 4,
+      "matched_count": 4,
+      "reconciled": true,
+      "amounts": [
+        17501.19,
+        19276.12,
+        24027.96,
+        15580.3
+      ],
+      "matches": [
+        {
+          "hw": 17501.19,
+          "pdf": 17501.19,
+          "diff": 0.0,
+          "file": "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11488_Faktureringsdokument - 7002636083.pdf"
+        },
+        {
+          "hw": 19276.12,
+          "pdf": 19276.12,
+          "diff": 0.0,
+          "file": "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11498_Faktureringsdokument - 7002650900.pdf"
+        },
+        {
+          "hw": 24027.96,
+          "pdf": 24027.96,
+          "diff": 0.0,
+          "file": "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11542_Faktureringsdokument - 7002657174.pdf"
+        },
+        {
+          "hw": 15580.3,
+          "pdf": 15580.3,
+          "diff": 0.0,
+          "file": "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11577_Faktureringsdokument - 7002667631.pdf"
+        }
+      ],
+      "unmatched": [],
+      "files": [
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11488_Faktureringsdokument - 7002636083.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11498_Faktureringsdokument - 7002650900.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11542_Faktureringsdokument - 7002657174.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11577_Faktureringsdokument - 7002667631.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11409_Faktureringsdokument - 7002615219.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11451_Faktureringsdokument - 7002627127.pdf"
+      ]
+    },
+    {
+      "partner": "Uber",
+      "handwritten_total": 5303.6,
+      "handwritten_count": 4,
+      "matched_count": 2,
+      "reconciled": false,
+      "amounts": [
+        1363.3,
+        1099.8,
+        1718.6,
+        1121.9
+      ],
+      "matches": [
+        {
+          "hw": 1363.3,
+          "pdf": 1363.3,
+          "diff": 0.0,
+          "file": "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11503_email_body.pdf"
+        },
+        {
+          "hw": 1099.8,
+          "pdf": 1121.9,
+          "diff": 22.100000000000136,
+          "file": "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11551_email_body.pdf"
+        }
+      ],
+      "unmatched": [
+        1718.6,
+        1121.9
+      ],
+      "files": [
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11503_email_body.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11551_email_body.pdf"
+      ]
+    },
+    {
+      "partner": "Wolt",
+      "handwritten_total": 2334.84,
+      "handwritten_count": 2,
+      "matched_count": 1,
+      "reconciled": false,
+      "amounts": [
+        883.76,
+        1451.08
+      ],
+      "matches": [
+        {
+          "hw": 883.76,
+          "pdf": 883.76,
+          "diff": 0.0,
+          "file": "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11477_Ichiban Sushi__payout_report__semi_monthly__2026-04-16__2026-05-01.pdf"
+        }
+      ],
+      "unmatched": [
+        1451.08
+      ],
+      "files": [
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11477_Ichiban Sushi__payout_report__semi_monthly__2026-04-16__2026-05-01.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11579_Ichiban Sushi__payout_report__semi_monthly__2026-05-16__2026-06-01.pdf"
+      ]
+    },
+    {
+      "partner": "Stripe",
+      "handwritten_total": 25072.920000000002,
+      "handwritten_count": 18,
+      "matched_count": 18,
+      "reconciled": true,
+      "amounts": [
+        767.81,
+        1310.55,
+        3134.8,
+        534.2,
+        317.47,
+        1575.51,
+        1412.73,
+        766.01,
+        846.78,
+        2140.09,
+        2751.28,
+        3239.87,
+        144.96,
+        261.19,
+        242.48,
+        1265.41,
+        3320.14,
+        1041.64
+      ],
+      "matches": [
+        {
+          "hw": 767.81,
+          "pdf": 767.81,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TTAvwGByRYD7y4lAH1K14PN"
+        },
+        {
+          "hw": 1310.55,
+          "pdf": 1310.55,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TTtjRGByRYD7y4lC8RwiQGQ"
+        },
+        {
+          "hw": 3134.8,
+          "pdf": 3134.8,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TUGRCGByRYD7y4lIaGfKVhr"
+        },
+        {
+          "hw": 534.2,
+          "pdf": 534.2,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TUbxrGByRYD7y4lbZWp6Xjz"
+        },
+        {
+          "hw": 317.47,
+          "pdf": 317.47,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TW4QfGByRYD7y4lp8mlgmU1"
+        },
+        {
+          "hw": 1575.51,
+          "pdf": 1575.51,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TWQp8GByRYD7y4lBRmMm2oM"
+        },
+        {
+          "hw": 1412.73,
+          "pdf": 1412.73,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TWn9BGByRYD7y4l6WcKayfT"
+        },
+        {
+          "hw": 766.01,
+          "pdf": 766.01,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TX9u1GByRYD7y4lGi44EmyD"
+        },
+        {
+          "hw": 846.78,
+          "pdf": 846.78,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TYEcyGByRYD7y4lT3pL2mNV"
+        },
+        {
+          "hw": 2140.09,
+          "pdf": 2140.09,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TYb7uGByRYD7y4lGza4oElL"
+        },
+        {
+          "hw": 2751.28,
+          "pdf": 2751.28,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TYxZGGByRYD7y4lG3XpnbHQ"
+        },
+        {
+          "hw": 3239.87,
+          "pdf": 3239.87,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TZKUcGByRYD7y4l9IXDppUb"
+        },
+        {
+          "hw": 144.96,
+          "pdf": 144.96,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TZgaOGByRYD7y4lvwdlkTAT"
+        },
+        {
+          "hw": 261.19,
+          "pdf": 261.19,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1Tam24GByRYD7y4lNdEZMdrv"
+        },
+        {
+          "hw": 242.48,
+          "pdf": 242.48,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1Tb9g4GByRYD7y4l7t9sqPYM"
+        },
+        {
+          "hw": 1265.41,
+          "pdf": 1265.41,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TbV3eGByRYD7y4lyNS8Bckv"
+        },
+        {
+          "hw": 3320.14,
+          "pdf": 3320.14,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TbrZyGByRYD7y4l9hoH99oZ"
+        },
+        {
+          "hw": 1041.64,
+          "pdf": 1041.64,
+          "diff": 0.0,
+          "file": "https://dashboard.stripe.com/payouts/po_1TcDsQGByRYD7y4lx57ke89B"
+        }
+      ],
+      "unmatched": [],
+      "files": []
+    }
+  ],
+  "files": [
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11488_Faktureringsdokument - 7002636083.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11498_Faktureringsdokument - 7002650900.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11542_Faktureringsdokument - 7002657174.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11577_Faktureringsdokument - 7002667631.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11409_Faktureringsdokument - 7002615219.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11451_Faktureringsdokument - 7002627127.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11503_email_body.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11551_email_body.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11477_Ichiban Sushi__payout_report__semi_monthly__2026-04-16__2026-05-01.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11579_Ichiban Sushi__payout_report__semi_monthly__2026-05-16__2026-06-01.pdf"
+  ]
+}

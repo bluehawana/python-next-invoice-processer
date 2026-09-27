@@ -1,0 +1,10 @@
+git
+python@3.11
+node
+wget
+curl
+jq
+tailscale
+gh
+tree
+htop

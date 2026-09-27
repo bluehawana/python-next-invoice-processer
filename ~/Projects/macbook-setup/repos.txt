@@ -1,0 +1,8 @@
+# List of repositories to clone
+# One repository per line
+
+# Invoice Processor
+https://github.com/bluehawana/python-next-invoice-processer.git
+
+# Add more repositories here as needed
+# https://github.com/bluehawana/your-other-repo.git

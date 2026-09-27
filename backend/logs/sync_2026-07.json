@@ -1,0 +1,147 @@
+{
+  "month": "2026-07",
+  "records": [
+    {
+      "partner": "Wolt (no handwritten record)",
+      "handwritten_total": 0,
+      "handwritten_count": 0,
+      "matched_count": 0,
+      "reconciled": false,
+      "amounts": [],
+      "matches": [],
+      "unmatched": [],
+      "files": [
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11747_Ichiban Sushi__payout_report__semi_monthly__2026-06-16__2026-07-01.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11827_Ichiban Sushi__payout_report__semi_monthly__2026-07-01__2026-07-16.pdf"
+      ],
+      "pdf_amounts": [
+        197.94,
+        1487.12
+      ]
+    },
+    {
+      "partner": "Foodora (no handwritten record)",
+      "handwritten_total": 0,
+      "handwritten_count": 0,
+      "matched_count": 0,
+      "reconciled": false,
+      "amounts": [],
+      "matches": [],
+      "unmatched": [],
+      "files": [
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11755_Faktureringsdokument - 7002716006.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11793_Faktureringsdokument - 7002729662.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11836_Faktureringsdokument - 7002738779.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11854_Faktureringsdokument - 7002748865.pdf"
+      ],
+      "pdf_amounts": [
+        20561.91,
+        11820.08,
+        15244.05,
+        15840.64
+      ]
+    },
+    {
+      "partner": "Uber (no handwritten record)",
+      "handwritten_total": 0,
+      "handwritten_count": 0,
+      "matched_count": 0,
+      "reconciled": false,
+      "amounts": [],
+      "matches": [],
+      "unmatched": [],
+      "files": [
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11764_email_body.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11811_email_body.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11863_email_body.pdf"
+      ],
+      "pdf_amounts": [
+        2038.35,
+        2168.4,
+        1742.0
+      ]
+    },
+    {
+      "partner": "Stripe (no handwritten record)",
+      "handwritten_total": 0,
+      "handwritten_count": 0,
+      "matched_count": 0,
+      "reconciled": false,
+      "amounts": [],
+      "matches": [],
+      "unmatched": [],
+      "files": [
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1ToYaSGByRYD7y4llSE0KBWL.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TounkGByRYD7y4lf4F3t5UT.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TqNGzGByRYD7y4lXDwgas5C.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Tr6ErGByRYD7y4lAL5qKkGc.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TrRv0GByRYD7y4lPm7dWbvY.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TsY0nGByRYD7y4l3K6CPgdp.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TtH0cGByRYD7y4lOpamhZY6.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TtdCBGByRYD7y4l3IoDTCBu.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Tu01CGByRYD7y4lioVgwLV8.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Tv4fDGByRYD7y4lPGOinc6h.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TvRWzGByRYD7y4lFsvpWvYv.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TvnyqGByRYD7y4lMx6cH7AP.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TwA6kGByRYD7y4lnlmohuel.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TwWeKGByRYD7y4l75vSJLJF.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Txcd0GByRYD7y4lPKtepiCm.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TxzItGByRYD7y4ly0JeplFW.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TyKxbGByRYD7y4l7hrQT0AE.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TyiHeGByRYD7y4lcjjGGAlK.pdf",
+        "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Tz4gAGByRYD7y4lNDzG44KZ.pdf"
+      ],
+      "pdf_amounts": [
+        4610.14,
+        495.79,
+        867.89,
+        2160.48,
+        358.71,
+        554.41,
+        996.51,
+        1170.03,
+        379.39,
+        321.28,
+        769.96,
+        1011.7,
+        1700.09,
+        2251.4,
+        1579.46,
+        545.86,
+        2449.03,
+        2235.89,
+        3353.54
+      ]
+    }
+  ],
+  "files": [
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11747_Ichiban Sushi__payout_report__semi_monthly__2026-06-16__2026-07-01.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/wolt_11827_Ichiban Sushi__payout_report__semi_monthly__2026-07-01__2026-07-16.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11755_Faktureringsdokument - 7002716006.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11793_Faktureringsdokument - 7002729662.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11836_Faktureringsdokument - 7002738779.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/foodora_11854_Faktureringsdokument - 7002748865.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11764_email_body.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11811_email_body.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/ubereats_11863_email_body.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1ToYaSGByRYD7y4llSE0KBWL.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TounkGByRYD7y4lf4F3t5UT.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TqNGzGByRYD7y4lXDwgas5C.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Tr6ErGByRYD7y4lAL5qKkGc.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TrRv0GByRYD7y4lPm7dWbvY.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TsY0nGByRYD7y4l3K6CPgdp.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TtH0cGByRYD7y4lOpamhZY6.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TtdCBGByRYD7y4l3IoDTCBu.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Tu01CGByRYD7y4lioVgwLV8.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Tv4fDGByRYD7y4lPGOinc6h.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TvRWzGByRYD7y4lFsvpWvYv.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TvnyqGByRYD7y4lMx6cH7AP.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TwA6kGByRYD7y4lnlmohuel.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TwWeKGByRYD7y4l75vSJLJF.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Txcd0GByRYD7y4lPKtepiCm.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TxzItGByRYD7y4ly0JeplFW.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TyKxbGByRYD7y4l7hrQT0AE.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1TyiHeGByRYD7y4lcjjGGAlK.pdf",
+    "/Users/harvad/Projects/python-next-invoice-processer/backend/invoices/stripe_payout_po_1Tz4gAGByRYD7y4lNDzG44KZ.pdf"
+  ]
+}
