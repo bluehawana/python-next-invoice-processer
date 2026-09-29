@@ -47,9 +47,13 @@ def save_handwritten_data():
     """Save handwritten data to disk for persistence across restarts"""
     import json
     try:
-        with open(HANDWRITTEN_DATA_FILE, 'w') as f:
-            json.dump(handwritten_records, f, indent=2)
-        print(f"[PERSIST] Saved handwritten data: {len(handwritten_records)} partners")
+        # Only save if there's actual data to prevent overwriting with empty dict
+        if handwritten_records:
+            with open(HANDWRITTEN_DATA_FILE, 'w') as f:
+                json.dump(handwritten_records, f, indent=2)
+            print(f"[PERSIST] Saved handwritten data: {len(handwritten_records)} partners")
+        else:
+            print(f"[PERSIST] Skipping save - no handwritten data to persist")
     except Exception as e:
         print(f"[PERSIST] Error saving handwritten data: {e}")
 
