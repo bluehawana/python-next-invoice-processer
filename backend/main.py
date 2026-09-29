@@ -43,6 +43,34 @@ reconciliation_results = []
 # Persistent storage for handwritten data
 HANDWRITTEN_DATA_FILE = "handwritten_data_persistent.json"
 
+def _filter_aug2026_files(files: list) -> list:
+    """Return only invoices that belong to August 2026."""
+    result = []
+    for f in files:
+        name = os.path.basename(f).lower()
+        # Manual Uber invoices we created for Aug 2026
+        if "aug2026" in name:
+            result.append(f)
+        # Wolt filenames contain the date range e.g. 2026-08-01__2026-08-16
+        elif "wolt" in name and "2026-08" in name:
+            result.append(f)
+        # Wolt period that ends Aug 1 (Jul 16 - Aug 1 covers July payout, paid in Aug)
+        elif "wolt" in name and "2026-07-16__2026-08-01" in name:
+            result.append(f)
+        # Foodora: match by invoice ID — 11907 and 11929 are the August ones
+        elif "foodora" in name:
+            import re
+            m = re.search(r'foodora_(\d+)_', name)
+            if m and int(m.group(1)) in range(11900, 11950):
+                result.append(f)
+        # Stripe: match by invoice ID — Aug 2026 IDs start from po_1U (rough range)
+        elif "stripe_payout" in name:
+            import re
+            m = re.search(r'po_(1U\w+)\.pdf', name)
+            if m:
+                result.append(f)
+    return result
+
 def save_handwritten_data():
     """Save handwritten data to disk for persistence across restarts"""
     import json
@@ -88,24 +116,7 @@ async def startup_auto_reconcile():
     # Get all PDF files without month filtering - let reconciliation handle matching
     existing_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
     
-    # Filter to August 2026 only (by filename date or file modification time)
-    aug_files = []
-    for f in existing_files:
-        name = os.path.basename(f).lower()
-        # Include files with aug2026 in name, or Wolt/Foodora files dated in August range
-        if "aug2026" in name or "2026-08" in name or "2026_08" in name:
-            aug_files.append(f)
-        elif "wolt" in name and ("2026-08" in name or "2026-07-16" in name):
-            aug_files.append(f)
-        elif "foodora" in name:
-            mtime = datetime.datetime.fromtimestamp(os.path.getmtime(f))
-            if mtime.year == 2026 and mtime.month == 8:
-                aug_files.append(f)
-        elif "stripe_payout" in name:
-            mtime = datetime.datetime.fromtimestamp(os.path.getmtime(f))
-            if mtime.year == 2026 and mtime.month == 8:
-                aug_files.append(f)
-    existing_files = aug_files
+    existing_files = _filter_aug2026_files(glob.glob(os.path.join(invoice_dir, "*.pdf")))
     
     print(f"[STARTUP] Invoice dir: {invoice_dir}")
     print(f"[STARTUP] Found {len(existing_files)} existing PDFs")
@@ -216,8 +227,9 @@ async def upload_paper(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
     
     parsed_data = process_handwritten_image(file_path)
-    handwritten_records = parsed_data
-    save_handwritten_data()  # Persist to disk
+    if parsed_data:
+        handwritten_records = parsed_data
+        save_handwritten_data()  # Only persist if OCR actually found something
     reconciliation_results = reconcile_invoices(handwritten_records, [], [])
     
     return {"message": "OCR Complete. Recognition results loaded.", "results": reconciliation_results}
@@ -258,21 +270,7 @@ async def upload_handwritten_manual(data: ManualHandwrittenInput):
     import glob, datetime
     invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
     all_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
-    existing_files = []
-    for f in all_files:
-        name = os.path.basename(f).lower()
-        if "aug2026" in name or "2026-08" in name or "2026_08" in name:
-            existing_files.append(f)
-        elif "wolt" in name and ("2026-08" in name or "2026-07-16" in name):
-            existing_files.append(f)
-        elif "foodora" in name:
-            mtime = datetime.datetime.fromtimestamp(os.path.getmtime(f))
-            if mtime.year == 2026 and mtime.month == 8:
-                existing_files.append(f)
-        elif "stripe_payout" in name:
-            mtime = datetime.datetime.fromtimestamp(os.path.getmtime(f))
-            if mtime.year == 2026 and mtime.month == 8:
-                existing_files.append(f)
+    existing_files = _filter_aug2026_files(all_files)
     
     # Get Stripe payouts if available
     try:
