@@ -163,9 +163,19 @@ async def run_unified_workflow(year: int, month: int):
     
     all_files = email_files + stripe_pdfs
 
-    # 2. Reconcile
-    reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, all_files)
-    print(f"--- Sync Completed. {len(all_files)} files stored on VPS. ---")
+    # Also inject manual Aug 2026 PDFs (e.g. Uber manual invoices in invoices/)
+    import re
+    invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
+    for mf in glob.glob(os.path.join(invoice_dir, "*.pdf")):
+        name = os.path.basename(mf).lower()
+        if "aug2026" in name and mf not in all_files:
+            all_files.append(mf)
+            print(f"Injected Aug2026 manual PDF: {os.path.basename(mf)}")
+
+    # 2. Reconcile using only August-relevant files
+    aug_files = _filter_aug2026_files(all_files)
+    reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, aug_files)
+    print(f"--- Sync Completed. {len(aug_files)} Aug 2026 files used. ---")
 
 # --- Endpoints ---
 @app.get("/")
