@@ -44,7 +44,8 @@ reconciliation_results = []
 HANDWRITTEN_DATA_FILE = "handwritten_data_persistent.json"
 
 def _filter_aug2026_files(files: list) -> list:
-    """Return only invoices that belong to August 2026."""
+    """Return only invoices that belong to August 2026 payment period.
+    Note: Foodora and Uber payments in August include last 2 weeks of July."""
     result = []
     for f in files:
         name = os.path.basename(f).lower()
@@ -57,11 +58,18 @@ def _filter_aug2026_files(files: list) -> list:
         # Wolt period that ends Aug 1 (Jul 16 - Aug 1 covers July payout, paid in Aug)
         elif "wolt" in name and "2026-07-16__2026-08-01" in name:
             result.append(f)
-        # Foodora: match by invoice ID — 11907 and 11929 are the August ones
+        # Foodora: match by invoice ID — Aug payment includes late July + early Aug
+        # IDs 11850-11950 cover late July through August period
         elif "foodora" in name:
             import re
             m = re.search(r'foodora_(\d+)_', name)
-            if m and int(m.group(1)) in range(11900, 11950):
+            if m and int(m.group(1)) in range(11850, 11950):
+                result.append(f)
+        # Uber: Aug payment includes late July, so include IDs from 11700+
+        elif "uber" in name:
+            import re
+            m = re.search(r'ubereats_(\d+)_', name)
+            if m and int(m.group(1)) in range(11700, 11900):
                 result.append(f)
         # Stripe: match by invoice ID — Aug 2026 IDs start from po_1U (rough range)
         elif "stripe_payout" in name:
