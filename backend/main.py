@@ -40,12 +40,42 @@ app.mount("/static/invoices", StaticFiles(directory=settings.INVOICE_STORAGE_PAT
 handwritten_records = {}
 reconciliation_results = []
 
+# Persistent storage for handwritten data
+HANDWRITTEN_DATA_FILE = "handwritten_data_persistent.json"
+
+def save_handwritten_data():
+    """Save handwritten data to disk for persistence across restarts"""
+    import json
+    try:
+        with open(HANDWRITTEN_DATA_FILE, 'w') as f:
+            json.dump(handwritten_records, f, indent=2)
+        print(f"[PERSIST] Saved handwritten data: {len(handwritten_records)} partners")
+    except Exception as e:
+        print(f"[PERSIST] Error saving handwritten data: {e}")
+
+def load_handwritten_data():
+    """Load handwritten data from disk"""
+    global handwritten_records
+    import json
+    try:
+        if os.path.exists(HANDWRITTEN_DATA_FILE):
+            with open(HANDWRITTEN_DATA_FILE, 'r') as f:
+                handwritten_records = json.load(f)
+            print(f"[PERSIST] Loaded handwritten data: {len(handwritten_records)} partners")
+            return True
+    except Exception as e:
+        print(f"[PERSIST] Error loading handwritten data: {e}")
+    return False
+
 @app.on_event("startup")
 async def startup_auto_reconcile():
     """On startup, auto-reconcile using any PDFs already on disk so state survives restarts."""
     global reconciliation_results
     import glob
     import datetime
+    
+    # Load persisted handwritten data
+    load_handwritten_data()
 
     # Use absolute path to avoid relative path issues with systemd
     invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
@@ -168,6 +198,7 @@ async def upload_paper(file: UploadFile = File(...)):
     
     parsed_data = process_handwritten_image(file_path)
     handwritten_records = parsed_data
+    save_handwritten_data()  # Persist to disk
     reconciliation_results = reconcile_invoices(handwritten_records, [], [])
     
     return {"message": "OCR Complete. Recognition results loaded.", "results": reconciliation_results}
@@ -202,6 +233,7 @@ async def upload_handwritten_manual(data: ManualHandwrittenInput):
             normalised[partner] = amounts
     
     handwritten_records = normalised
+    save_handwritten_data()  # Persist to disk
     
     # Scan for existing PDF files to match against
     import glob
