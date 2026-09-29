@@ -81,27 +81,23 @@ async def startup_auto_reconcile():
     invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
     os.makedirs(invoice_dir, exist_ok=True)
 
-    # Determine previous month
-    now = datetime.datetime.now()
-    first_of_this_month = now.replace(day=1)
-    last_month = first_of_this_month - datetime.timedelta(days=1)
-
+    # Get all PDF files without month filtering - let reconciliation handle matching
     existing_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
-    # Filter to previous month only
-    existing_files = [
-        f for f in existing_files
-        if datetime.datetime.fromtimestamp(os.path.getmtime(f)).year == last_month.year
-        and datetime.datetime.fromtimestamp(os.path.getmtime(f)).month == last_month.month
-    ]
+    
     print(f"[STARTUP] Invoice dir: {invoice_dir}")
-    print(f"[STARTUP] Found {len(existing_files)} existing PDFs, auto-reconciling...")
-    if existing_files:
+    print(f"[STARTUP] Found {len(existing_files)} existing PDFs")
+    print(f"[STARTUP] Loaded handwritten data for {len(handwritten_records)} partners")
+    
+    if existing_files and handwritten_records:
         try:
-            st_payouts = download_stripe_payouts(last_month.year, last_month.month)
+            # Try to get Stripe payouts for current display month (August 2026)
+            st_payouts = download_stripe_payouts(2026, 8)
         except Exception:
             st_payouts = []
         reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, existing_files)
         print(f"[STARTUP] Auto-reconcile complete: {len(reconciliation_results)} partners")
+    else:
+        print(f"[STARTUP] Skipping reconciliation: files={len(existing_files)}, handwritten={len(handwritten_records)}")
 
 # --- Background Workflows ---
 async def run_unified_workflow(year: int, month: int):
