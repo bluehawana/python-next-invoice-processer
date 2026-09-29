@@ -43,40 +43,73 @@ reconciliation_results = []
 # Persistent storage for handwritten data
 HANDWRITTEN_DATA_FILE = "handwritten_data_persistent.json"
 
-def _filter_aug2026_files(files: list) -> list:
-    """Return only invoices that belong to August 2026 payment period.
-    Note: Foodora and Uber payments in August include last 2 weeks of July."""
+def _filter_month_files(files: list, year: int, month: int) -> list:
+    """Return only invoices for the specified payment month.
+    
+    CRITICAL BUSINESS LOGIC - PAYMENT PERIOD RULES:
+    ================================================
+    Foodora & Uber have ~2 week payment delays:
+    - Work done in last 2 weeks of PREVIOUS month gets paid in CURRENT month
+    - Work done in first 2 weeks of CURRENT month gets paid in CURRENT month
+    
+    Example: August 2026 payment includes:
+    - Invoices from Jul 16-31 (late July work)
+    - Invoices from Aug 1-15 (early August work)
+    
+    Therefore: Always include invoices from BOTH months!
+    """
     result = []
+    prev_month = month - 1 if month > 1 else 12
+    prev_year = year if month > 1 else year - 1
+    
     for f in files:
         name = os.path.basename(f).lower()
-        # Manual Uber invoices we created for Aug 2026
-        if "aug2026" in name:
+        
+        # Manual invoices with month name (e.g., aug2026, sep2026)
+        month_names = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+        target_month_name = month_names[month - 1]
+        if f"{target_month_name}{year}" in name:
             result.append(f)
-        # Wolt filenames contain the date range e.g. 2026-08-01__2026-08-16
-        elif "wolt" in name and "2026-08" in name:
-            result.append(f)
-        # Wolt period that ends Aug 1 (Jul 16 - Aug 1 covers July payout, paid in Aug)
-        elif "wolt" in name and "2026-07-16__2026-08-01" in name:
-            result.append(f)
-        # Foodora: match by invoice ID — Aug payment includes late July + early Aug
-        # IDs 11850-11950 cover late July through August period
+            
+        # Wolt: semi-monthly periods with dates in filename
+        elif "wolt" in name:
+            if f"{year}-{month:02d}" in name or f"{prev_year}-{prev_month:02d}-16__{year}-{month:02d}-01" in name:
+                result.append(f)
+                
+        # Foodora: Include invoices from late previous month + current month
+        # Approximate ID ranges (50 IDs per month, start ~100 IDs before current)
         elif "foodora" in name:
             import re
             m = re.search(r'foodora_(\d+)_', name)
-            if m and int(m.group(1)) in range(11850, 11950):
-                result.append(f)
-        # Uber: Aug payment includes late July, so include IDs from 11700+
+            if m:
+                # Rough estimate: 50 IDs per month, include previous 100 IDs
+                base_id = 11000 + (year - 2025) * 600 + month * 50
+                if int(m.group(1)) in range(base_id - 100, base_id + 100):
+                    result.append(f)
+                    
+        # Uber: Include invoices from late previous month + current month
         elif "uber" in name:
             import re
             m = re.search(r'ubereats_(\d+)_', name)
-            if m and int(m.group(1)) in range(11700, 11900):
-                result.append(f)
-        # Stripe: match by invoice ID — Aug 2026 IDs start from po_1U (rough range)
+            if m:
+                # Rough estimate: 50 IDs per month, include previous 200 IDs
+                base_id = 11000 + (year - 2025) * 600 + month * 50
+                if int(m.group(1)) in range(base_id - 200, base_id + 100):
+                    result.append(f)
+                    
+        # Stripe: match by payout ID prefix (changes monthly)
+        # Aug 2026 = po_1U, Sep 2026 = po_1V, Oct 2026 = po_1W, etc.
         elif "stripe_payout" in name:
+            # Stripe IDs increment alphabetically: 1U, 1V, 1W, 1X, 1Y, 1Z, 10A...
+            # Aug 2026 = 1U (20th letter, where Jan 2026 = 1B)
+            months_since_jan = (year - 2026) * 12 + (month - 1)
+            prefix_num = 1 + months_since_jan // 26
+            prefix_letter = chr(ord('B') + (months_since_jan % 26))
             import re
-            m = re.search(r'po_(1U\w+)\.pdf', name)
+            m = re.search(rf'po_({prefix_num}{prefix_letter}\w+)\.pdf', name)
             if m:
                 result.append(f)
+                
     return result
 
 def save_handwritten_data():
@@ -124,7 +157,8 @@ async def startup_auto_reconcile():
     # Get all PDF files without month filtering - let reconciliation handle matching
     existing_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
     
-    existing_files = _filter_aug2026_files(glob.glob(os.path.join(invoice_dir, "*.pdf")))
+    # Get invoices for August 2026 (includes late July per business rules)
+    existing_files = _filter_month_files(glob.glob(os.path.join(invoice_dir, "*.pdf")), 2026, 8)
     
     print(f"[STARTUP] Invoice dir: {invoice_dir}")
     print(f"[STARTUP] Found {len(existing_files)} existing PDFs")
@@ -180,10 +214,10 @@ async def run_unified_workflow(year: int, month: int):
             all_files.append(mf)
             print(f"Injected Aug2026 manual PDF: {os.path.basename(mf)}")
 
-    # 2. Reconcile using only August-relevant files
-    aug_files = _filter_aug2026_files(all_files)
+    # 2. Reconcile using payment-period-aware file filter
+    aug_files = _filter_month_files(all_files, year, month)
     reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, aug_files)
-    print(f"--- Sync Completed. {len(aug_files)} Aug 2026 files used. ---")
+    print(f"--- Sync Completed. {len(aug_files)} files for {year}-{month:02d} payment period. ---")
 
 # --- Endpoints ---
 @app.get("/")
@@ -284,11 +318,11 @@ async def upload_handwritten_manual(data: ManualHandwrittenInput):
     handwritten_records = normalised
     save_handwritten_data()  # Persist to disk
     
-    # Scan for August 2026 PDFs only
+    # Scan for payment month files (includes late previous month per business rules)
     import glob, datetime
     invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
     all_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
-    existing_files = _filter_aug2026_files(all_files)
+    existing_files = _filter_month_files(all_files, 2026, 8)
     
     # Get Stripe payouts if available
     try:
