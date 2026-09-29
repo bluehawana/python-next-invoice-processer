@@ -202,10 +202,25 @@ async def upload_handwritten_manual(data: ManualHandwrittenInput):
             normalised[partner] = amounts
     
     handwritten_records = normalised
-    reconciliation_results = reconcile_invoices(handwritten_records, [], [])
+    
+    # Scan for existing PDF files to match against
+    import glob
+    invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
+    existing_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
+    
+    # Get Stripe payouts if available
+    try:
+        from stripe_module import download_stripe_payouts
+        import datetime
+        now = datetime.datetime.now()
+        st_payouts = download_stripe_payouts(now.year, now.month)
+    except Exception:
+        st_payouts = []
+    
+    reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, existing_files)
     
     return {
-        "message": f"Manual records loaded: {len(normalised)} partners",
+        "message": f"Manual records loaded: {len(normalised)} partners, found {len(existing_files)} PDFs",
         "records": normalised,
         "results": reconciliation_results
     }
