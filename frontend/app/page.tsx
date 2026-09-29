@@ -16,13 +16,23 @@ export default function Home() {
 
   // Calculate previous month (the month we're collecting invoices for)
   const getPreviousMonth = () => {
+    // TEMP: Force August 2026 for testing
+    // TODO: Revert to dynamic calculation later
+    return {
+      year: 2026,
+      month: 8,
+      display: 'Aug 2026'
+    };
+    
+    /* Original dynamic code:
     const now = new Date();
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     return {
       year: lastMonth.getFullYear(),
-      month: lastMonth.getMonth() + 1, // JavaScript months are 0-indexed
+      month: lastMonth.getMonth() + 1,
       display: lastMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     };
+    */
   };
 
   const targetMonth = getPreviousMonth();
