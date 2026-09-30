@@ -373,6 +373,16 @@ def reconcile_invoices(
 
     # ── Stripe: match against API payout amounts ─────────────────────────
     stripe_amount_map: Dict[float, Dict] = {p["amount"]: p for p in stripe_payouts}
+    
+    # Build Stripe PDF file map (payout_id -> file_path)
+    stripe_pdf_map: Dict[str, str] = {}
+    for fpath in file_map.get("stripe", []):
+        # Extract payout ID from filename like: stripe_payout_po_1U09ZJGByRYD7y4lXBZdsWTv.pdf
+        import re
+        match = re.search(r'stripe_payout_(po_\w+)\.pdf', os.path.basename(fpath))
+        if match:
+            payout_id = match.group(1)
+            stripe_pdf_map[payout_id] = fpath
 
     # ── Match handwritten data ────────────────────────────────────────────
     matched_pdf_paths: set = set()
@@ -398,7 +408,9 @@ def reconcile_invoices(
                         best = (sa, payout)
                 if best and best_diff <= 5.0:
                     used_stripe.add(best[0])
-                    matches.append({"hw": hw_amt, "pdf": best[0], "diff": best_diff, "file": best[1].get("report_url", "")})
+                    payout_id = best[1].get("id", "")
+                    pdf_path = stripe_pdf_map.get(payout_id, best[1].get("report_url", ""))
+                    matches.append({"hw": hw_amt, "pdf": best[0], "diff": best_diff, "file": pdf_path})
                 else:
                     unmatched_hw.append(hw_amt)
 
