@@ -332,6 +332,10 @@ async def upload_handwritten_manual(data: ManualHandwrittenInput):
     except Exception:
         st_payouts = []
     
+    # Debug: Count Stripe files
+    stripe_files_count = len([f for f in existing_files if "stripe" in os.path.basename(f).lower()])
+    print(f"[MANUAL-UPLOAD] Total files: {len(existing_files)}, Stripe: {stripe_files_count}")
+    
     reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, existing_files)
     
     return {
