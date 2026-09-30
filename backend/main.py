@@ -166,8 +166,8 @@ async def startup_auto_reconcile():
     # Get all PDF files without month filtering - let reconciliation handle matching
     existing_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
     
-    # Get invoices for August 2026 (includes late July per business rules)
-    existing_files = _filter_month_files(glob.glob(os.path.join(invoice_dir, "*.pdf")), 2026, 8)
+    # Get invoices for September 2026 (includes late August per business rules)
+    existing_files = _filter_month_files(glob.glob(os.path.join(invoice_dir, "*.pdf")), 2026, 9)
     
     print(f"[STARTUP] Invoice dir: {invoice_dir}")
     print(f"[STARTUP] Found {len(existing_files)} existing PDFs")
@@ -175,8 +175,8 @@ async def startup_auto_reconcile():
     
     if existing_files and handwritten_records:
         try:
-            # Try to get Stripe payouts for current display month (August 2026)
-            st_payouts = download_stripe_payouts(2026, 8)
+            # Try to get Stripe payouts for current display month (September 2026)
+            st_payouts = download_stripe_payouts(2026, 9)
         except Exception:
             st_payouts = []
         reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, existing_files)
@@ -331,12 +331,12 @@ async def upload_handwritten_manual(data: ManualHandwrittenInput):
     import glob, datetime
     invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
     all_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
-    existing_files = _filter_month_files(all_files, 2026, 8)
+    existing_files = _filter_month_files(all_files, 2026, 9)
     
-    # Get Stripe payouts for the display month (August 2026)
+    # Get Stripe payouts for the display month (September 2026)
     try:
         from stripe_module import download_stripe_payouts
-        st_payouts = download_stripe_payouts(2026, 8)
+        st_payouts = download_stripe_payouts(2026, 9)
     except Exception:
         st_payouts = []
     
