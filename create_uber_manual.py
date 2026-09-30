@@ -53,7 +53,7 @@ def create_uber_pdf(filename, week, amount, year, month_name):
     pdf.set_font("Arial", "", 18)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 10, "EATS", ln=True)
-    pdf.ln(8)
+    pdf.ln(5)
     
     # Restaurant name
     pdf.set_text_color(0, 0, 0)
@@ -63,7 +63,7 @@ def create_uber_pdf(filename, week, amount, year, month_name):
     # Date info
     pdf.set_font("Arial", "", 11)
     pdf.set_text_color(80, 80, 80)
-    pdf.cell(0, 8, f"Betalningsoversikt - {{month_name}} {{year}} Week {{week}}", ln=True)
+    pdf.cell(0, 8, f"Betalningsoversikt - {{month_name}} {{year}} Vecka {{week}}", ln=True)
     pdf.ln(3)
     
     # Greeting
@@ -75,25 +75,113 @@ def create_uber_pdf(filename, week, amount, year, month_name):
     pdf.ln(2)
     pdf.cell(0, 5, "Tack for att du ar en partner,", ln=True)
     pdf.cell(0, 5, "Uber Eats-teamet", ln=True)
-    pdf.ln(8)
+    pdf.ln(5)
     
-    # Total section
+    # Calculate breakdown (reverse engineer from final amount)
+    # Net payout = amount
+    net_payout = float(amount.replace(',', '.'))
+    
+    # Typical Uber breakdown ratios (approximate)
+    # Net payout = Total revenue - Uber fees - Marketing
+    # Uber fee is typically 30% of gross, tax on fee is 25% of fee
+    
+    # Work backwards: if net = X, and fee+tax = ~35% of gross, then gross = net / 0.65
+    gross_revenue = net_payout / 0.64  # Approximate
+    sales_revenue = gross_revenue / 1.06  # Remove 6% tax
+    sales_tax = gross_revenue - sales_revenue
+    
+    # Uber fees
+    service_fee = sales_revenue * 0.30
+    service_fee_tax = service_fee * 0.25
+    total_uber_fees = service_fee + service_fee_tax
+    
+    # Marketing (usually 0 for manual)
+    marketing = 0.0
+    marketing_tax = 0.0
+    
+    # Orders (estimate 5-10 per week)
+    orders = 7
+    
+    # Format Swedish style (space as thousand separator, comma as decimal)
+    def fmt(val):
+        s = f"{{val:,.2f}}".replace(',', ' ').replace('.', ',')
+        # Fix the thousand separator
+        parts = s.split(',')
+        integer = parts[0].replace(' ', '\u00a0')  # non-breaking space
+        return f"{{integer}},{{parts[1]}}"
+    
+    # Section: Forsaljning (Sales)
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "Total forsaljning", ln=True)
-    pdf.ln(3)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Forsaljning", ln=True)
+    pdf.ln(2)
     
-    # Amount details
     pdf.set_font("Arial", "", 10)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(100, 6, "Total Betalning", ln=False)
+    pdf.cell(130, 5, f"Forsaljning ({{orders}} Bestallningar)", ln=False)
+    pdf.cell(0, 5, f"{{fmt(sales_revenue)}} kr", ln=True, align="R")
+    
+    pdf.cell(130, 5, "Skatt pa forsaljning", ln=False)
+    pdf.cell(0, 5, f"{{fmt(sales_tax)}} kr", ln=True, align="R")
+    
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(0, 6, f"{{amount}} kr", ln=True, align="R")
+    pdf.cell(130, 5, "Totala intakter", ln=False)
+    pdf.cell(0, 5, f"{{fmt(gross_revenue)}} kr", ln=True, align="R")
+    pdf.ln(3)
+    
+    # Section: Uber fees
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Uber-avgifter", ln=True)
+    pdf.ln(2)
     
     pdf.set_font("Arial", "", 10)
-    pdf.cell(100, 6, "Nettobetalning", ln=False)
+    pdf.cell(130, 5, "Serviceavgift", ln=False)
+    pdf.cell(0, 5, f"-{{fmt(service_fee)}} kr", ln=True, align="R")
+    
+    pdf.cell(130, 5, "Skatt pa serviceavgifter", ln=False)
+    pdf.cell(0, 5, f"-{{fmt(service_fee_tax)}} kr", ln=True, align="R")
+    
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(0, 6, f"{{amount}} kr", ln=True, align="R")
+    pdf.cell(130, 5, "Totala Uber-avgifter", ln=False)
+    pdf.cell(0, 5, f"-{{fmt(total_uber_fees)}} kr", ln=True, align="R")
+    pdf.ln(3)
+    
+    # Section: Marketing
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Marknadsforing", ln=True)
+    pdf.ln(2)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(130, 5, "Erbjudanden pa objekt", ln=False)
+    pdf.cell(0, 5, "0,00 kr", ln=True, align="R")
+    
+    pdf.cell(130, 5, "Skatt pa erbjudanden", ln=False)
+    pdf.cell(0, 5, "0,00 kr", ln=True, align="R")
+    
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(130, 5, "Totala marknadsforingskostnader", ln=False)
+    pdf.cell(0, 5, "0,00 kr", ln=True, align="R")
+    pdf.ln(3)
+    
+    # Section: Additions
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Tillagg", ln=True)
+    pdf.ln(2)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(130, 5, "Justeringar", ln=False)
+    pdf.cell(0, 5, "0,00 kr", ln=True, align="R")
+    
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(130, 5, "Totala tillagg", ln=False)
+    pdf.cell(0, 5, "0,00 kr", ln=True, align="R")
+    pdf.ln(5)
+    
+    # Final: Net payout
+    pdf.set_font("Arial", "B", 14)
+    pdf.set_text_color(0, 128, 0)  # Green
+    pdf.cell(130, 8, "Nettoutbetalning", ln=False)
+    pdf.cell(0, 8, f"{{fmt(net_payout)}} kr", ln=True, align="R")
     
     pdf.output(filename)
     print(f"Created: {{filename}}")
