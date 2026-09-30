@@ -107,7 +107,8 @@ def _filter_month_files(files: list, year: int, month: int) -> list:
             # Start from 'N' for Jan 2026
             prefix_letter = chr(ord('N') + (months_since_jan_2026 % 26))
             import re
-            m = re.search(rf'po_({prefix_num}{prefix_letter}\w+)\.pdf', name)
+            # Match case-insensitively since name is lowercased
+            m = re.search(rf'po_({prefix_num}{prefix_letter.lower()}\w+)\.pdf', name)
             if m:
                 result.append(f)
                 
