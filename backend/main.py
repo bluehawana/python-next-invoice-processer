@@ -98,13 +98,14 @@ def _filter_month_files(files: list, year: int, month: int) -> list:
                     result.append(f)
                     
         # Stripe: match by payout ID prefix (changes monthly)
-        # Aug 2026 = po_1U, Sep 2026 = po_1V, Oct 2026 = po_1W, etc.
+        # Jan 2026 = po_1N, Feb 2026 = po_1O, ..., Aug 2026 = po_1U, etc.
         elif "stripe_payout" in name:
-            # Stripe IDs increment alphabetically: 1U, 1V, 1W, 1X, 1Y, 1Z, 10A...
-            # Aug 2026 = 1U (20th letter, where Jan 2026 = 1B)
-            months_since_jan = (year - 2026) * 12 + (month - 1)
-            prefix_num = 1 + months_since_jan // 26
-            prefix_letter = chr(ord('B') + (months_since_jan % 26))
+            # Stripe IDs increment alphabetically starting from 1N for Jan 2026
+            # Mapping: Jan=N, Feb=O, Mar=P, Apr=Q, May=R, Jun=S, Jul=T, Aug=U, Sep=V, Oct=W, Nov=X, Dec=Y
+            months_since_jan_2026 = (year - 2026) * 12 + (month - 1)
+            prefix_num = 1 + months_since_jan_2026 // 26
+            # Start from 'N' for Jan 2026
+            prefix_letter = chr(ord('N') + (months_since_jan_2026 % 26))
             import re
             m = re.search(rf'po_({prefix_num}{prefix_letter}\w+)\.pdf', name)
             if m:
