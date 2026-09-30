@@ -20,8 +20,8 @@ export default function Home() {
     // TODO: Revert to dynamic calculation later
     return {
       year: 2026,
-      month: 8,
-      display: 'Aug 2026'
+      month: 9,
+      display: 'Sep 2026'
     };
     
     /* Original dynamic code:
