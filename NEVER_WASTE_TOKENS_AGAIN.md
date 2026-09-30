@@ -55,7 +55,7 @@ curl -X POST 'https://api.bluehawana.com/upload-handwritten-manual' \
 - **Uber:** Email sync should work, but if it fails:
   ```bash
   # Manual Uber fix (takes 10 seconds):
-  ./create_uber_manual.sh 2026 10 2956.85 1214.85 1456.00 1771.50 1840.50
+  python3 create_uber_manual.py 2026 10 2956.85 1214.85 1456.00 1771.50 1840.50
   ```
 
 ---
@@ -101,7 +101,7 @@ ssh racknerd 'ls /home/harvad/invoice-processor/backend/invoices/foodora_*.pdf |
 ### Problem: Uber not matching
 ```bash
 # Create manual invoices (use your 5 amounts from handwritten paper)
-./create_uber_manual.sh 2026 10 2956.85 1214.85 1456.00 1771.50 1840.50
+python3 create_uber_manual.py 2026 10 2956.85 1214.85 1456.00 1771.50 1840.50
 ```
 
 ### Problem: Stripe not matching
@@ -189,7 +189,7 @@ open https://invoices.bluehawana.com
 
 **Create manual Uber:**
 ```bash
-./create_uber_manual.sh 2026 10 2956.85 1214.85 1456.00 1771.50 1840.50
+python3 create_uber_manual.py 2026 10 2956.85 1214.85 1456.00 1771.50 1840.50
 ```
 
 ---
