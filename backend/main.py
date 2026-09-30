@@ -104,20 +104,11 @@ def _filter_month_files(files: list, year: int, month: int) -> list:
                 if int(m.group(1)) in range(base_id - 200, base_id + 100):
                     result.append(f)
                     
-        # Stripe: match by payout ID prefix (changes monthly)
-        # Jan 2026 = po_1N, Feb 2026 = po_1O, ..., Aug 2026 = po_1U, etc.
+        # Stripe: Include all Stripe payout PDFs, reconciliation matches by API data
+        # Stripe IDs are sequential (po_1U..., po_1V..., etc.) across all months
+        # The API data will handle month filtering, so just include all PDFs
         elif "stripe_payout" in name:
-            # Stripe IDs increment alphabetically starting from 1N for Jan 2026
-            # Mapping: Jan=N, Feb=O, Mar=P, Apr=Q, May=R, Jun=S, Jul=T, Aug=U, Sep=V, Oct=W, Nov=X, Dec=Y
-            months_since_jan_2026 = (year - 2026) * 12 + (month - 1)
-            prefix_num = 1 + months_since_jan_2026 // 26
-            # Start from 'N' for Jan 2026
-            prefix_letter = chr(ord('N') + (months_since_jan_2026 % 26))
-            import re
-            # Match case-insensitively since name is lowercased
-            m = re.search(rf'po_({prefix_num}{prefix_letter.lower()}\w+)\.pdf', name)
-            if m:
-                result.append(f)
+            result.append(f)
                 
     return result
 
