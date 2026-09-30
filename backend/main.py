@@ -325,12 +325,10 @@ async def upload_handwritten_manual(data: ManualHandwrittenInput):
     all_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
     existing_files = _filter_month_files(all_files, 2026, 8)
     
-    # Get Stripe payouts if available
+    # Get Stripe payouts for the display month (August 2026)
     try:
         from stripe_module import download_stripe_payouts
-        import datetime
-        now = datetime.datetime.now()
-        st_payouts = download_stripe_payouts(now.year, now.month)
+        st_payouts = download_stripe_payouts(2026, 8)
     except Exception:
         st_payouts = []
     
