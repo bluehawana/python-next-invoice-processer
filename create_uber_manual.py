@@ -77,38 +77,46 @@ def create_uber_pdf(filename, week, amount, year, month_name):
     pdf.cell(0, 5, "Uber Eats-teamet", ln=True)
     pdf.ln(5)
     
-    # Calculate breakdown (reverse engineer from final amount)
+    # Calculate breakdown to match EXACT format
     # Net payout = amount
     net_payout = float(amount.replace(',', '.'))
     
-    # Typical Uber breakdown ratios (approximate)
-    # Net payout = Total revenue - Uber fees - Marketing
-    # Uber fee is typically 30% of gross, tax on fee is 25% of fee
+    # Working backwards from net payout to total revenue:
+    # Net = Total revenue - Service fee - Service fee tax
+    # Service fee = ~28.8% of (sales + sales tax)
+    # Service fee tax = 25% of service fee
+    # Total revenue = sales + sales tax (6% of sales)
     
-    # Work backwards: if net = X, and fee+tax = ~35% of gross, then gross = net / 0.65
-    gross_revenue = net_payout / 0.64  # Approximate
-    sales_revenue = gross_revenue / 1.06  # Remove 6% tax
-    sales_tax = gross_revenue - sales_revenue
+    # Let's solve: Net = Total * (1 - 0.288 - 0.288*0.25)
+    # Net = Total * (1 - 0.288 - 0.072) = Total * 0.64
+    total_revenue = net_payout / 0.64
     
-    # Uber fees
-    service_fee = sales_revenue * 0.30
+    # Sales revenue (before tax)
+    sales_revenue = total_revenue / 1.06
+    sales_tax = total_revenue - sales_revenue
+    
+    # Service fee (28.8% of total revenue)
+    service_fee = total_revenue * 0.288
     service_fee_tax = service_fee * 0.25
     total_uber_fees = service_fee + service_fee_tax
     
-    # Marketing (usually 0 for manual)
+    # Verify: total_revenue - total_uber_fees should equal net_payout
+    calculated_net = total_revenue - total_uber_fees
+    
+    # Marketing (always 0 for manual)
     marketing = 0.0
     marketing_tax = 0.0
     
-    # Orders (estimate 5-10 per week)
+    # Orders (estimate 7 per week)
     orders = 7
     
     # Format Swedish style (space as thousand separator, comma as decimal)
     def fmt(val):
-        s = f"{{val:,.2f}}".replace(',', ' ').replace('.', ',')
-        # Fix the thousand separator
-        parts = s.split(',')
-        integer = parts[0].replace(' ', '\u00a0')  # non-breaking space
-        return f"{{integer}},{{parts[1]}}"
+        # Format to 2 decimals
+        formatted = f"{{val:,.2f}}"
+        # Replace comma with temp, dot with comma, temp with space
+        formatted = formatted.replace(',', 'TEMP').replace('.', ',').replace('TEMP', ' ')
+        return formatted
     
     # Section: Forsaljning (Sales)
     pdf.set_text_color(0, 0, 0)
@@ -126,7 +134,7 @@ def create_uber_pdf(filename, week, amount, year, month_name):
     
     pdf.set_font("Arial", "B", 10)
     pdf.cell(130, 5, "Totala intakter", ln=False)
-    pdf.cell(0, 5, f"{{fmt(gross_revenue)}} kr", ln=True, align="R")
+    pdf.cell(0, 5, f"{{fmt(total_revenue)}} kr", ln=True, align="R")
     pdf.ln(3)
     
     # Section: Uber fees
