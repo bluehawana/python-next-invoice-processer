@@ -77,14 +77,21 @@ def _filter_month_files(files: list, year: int, month: int) -> list:
                 result.append(f)
                 
         # Foodora: Include invoices from late previous month + current month
-        # Approximate ID ranges (50 IDs per month, start ~100 IDs before current)
+        # Match by invoice number pattern (7-digit starting with 7002...)
         elif "foodora" in name:
             import re
+            # Try ID-based match first (for email-fetched invoices with IDs like foodora_11xxx)
             m = re.search(r'foodora_(\d+)_', name)
-            if m:
-                # Rough estimate: 50 IDs per month, include previous 100 IDs
+            if m and len(m.group(1)) < 6:
+                # ID-based: 50 IDs per month, include previous 100 IDs
+                invoice_id = int(m.group(1))
                 base_id = 11000 + (year - 2025) * 600 + month * 50
-                if int(m.group(1)) in range(base_id - 100, base_id + 100):
+                if invoice_id in range(base_id - 100, base_id + 100):
+                    result.append(f)
+            else:
+                # Invoice number based (7002xxxxxx format) - include all for the target month
+                # Since we can't reliably determine month from invoice number, include if it contains target year
+                if f"{year}" in name or f"{year-1}" in name:
                     result.append(f)
                     
         # Uber: Include invoices from late previous month + current month
