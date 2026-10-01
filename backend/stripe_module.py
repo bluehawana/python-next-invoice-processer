@@ -32,13 +32,20 @@ if settings.STRIPE_API_KEY:
 def download_stripe_payouts(year: int, month: int) -> List[Dict]:
     """
     Lists Stripe payouts for a specific month.
+    Following the business rule: include last 2 weeks of previous month.
     """
     if not stripe.api_key:
         print("Stripe API key not set in .env.")
         return []
 
     import datetime
-    start_date = datetime.datetime(year, month, 1)
+    # Start from 16th of previous month (last 2 weeks)
+    if month == 1:
+        start_date = datetime.datetime(year - 1, 12, 16)
+    else:
+        start_date = datetime.datetime(year, month - 1, 16)
+    
+    # End on last day of current month
     if month == 12:
         end_date = datetime.datetime(year + 1, 1, 1)
     else:
