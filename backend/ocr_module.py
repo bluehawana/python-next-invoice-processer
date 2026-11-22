@@ -133,6 +133,17 @@ def extract_payout_amounts_from_pdf(pdf_path: str, partner: str) -> List[float]:
         if len(payouts) > 1:
             print(f"[PDF] {os.path.basename(pdf_path)}: Uber statement with {len(payouts)} payouts {payouts}")
             return payouts
+    if "ework" in partner.lower():
+        # Ework self-billing invoice: "Subtotal 46 870,84 SEK" (ex VAT) and "Total in SEK 58 588,55 SEK".
+        # The sheet may carry either figure, so both are candidates.
+        text = extract_text_from_pdf(pdf_path)
+        amounts = []
+        for pattern in [r'Total\s+in\s+SEK\s+(-?[\d\s\xa0]+,\d{2})', r'Subtotal\s+(-?[\d\s\xa0]+,\d{2})']:
+            for raw in re.findall(pattern, text):
+                amt = _parse_swedish_number(raw)
+                if amt is not None and amt not in amounts:
+                    amounts.append(amt)
+        return amounts
     single = extract_payout_amount_from_pdf(pdf_path, partner)
     return [single] if single is not None else []
 
@@ -194,7 +205,8 @@ OCR_PROMPT = (
     '- "Wolt"\n'
     '- "Stripe" (written as hemsida / hem / hemleverans / website / stripe - the long list of small amounts)\n'
     '- "Swish"\n'
-    "Any other label (for example Ework) keeps the name as written.\n"
+    '- "Ework" (consulting self-billing invoice, usually one large amount)\n'
+    "Any other label keeps the name as written.\n"
     "Read every digit carefully and copy each amount exactly as written, in order, "
     "using a dot as the decimal separator (1 234,56 -> 1234.56). Do not skip, merge or round amounts. "
     "Ignore totals/sums rows and anything crossed out.\n"
@@ -391,6 +403,8 @@ def reconcile_invoices(
             file_map.setdefault("uber", []).append(path)
         elif "stripe" in raw_basename:
             file_map.setdefault("stripe", []).append(path)
+        elif raw_basename.startswith("ework"):
+            file_map.setdefault("ework", []).append(path)
         else:
             print(f"[RECONCILE] Unknown partner for file: {raw_basename}")
 
@@ -569,7 +583,8 @@ def reconcile_invoices(
 def canonical_partner_label(label: str) -> str:
     """Map whatever was written/recognised ("uber eats", "hemsida", ...) to the display label."""
     key = _normalise_partner_key(label)
-    return {"wolt": "Wolt", "uber": "Uber", "foodora": "Foodora", "stripe": "Stripe", "swish": "Swish"}.get(
+    return {"wolt": "Wolt", "uber": "Uber", "foodora": "Foodora", "stripe": "Stripe", "swish": "Swish",
+            "ework": "Ework"}.get(
         key, label.strip()
     )
 
@@ -597,4 +612,6 @@ def _normalise_partner_key(label: str) -> str:
         return "stripe"
     if "swish" in label_lower:
         return "swish"
+    if "ework" in label_lower or "e-work" in label_lower:
+        return "ework"
     return label_lower.split()[0]

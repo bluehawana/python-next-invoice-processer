@@ -360,6 +360,62 @@ def _fetch_uber_invoices(mail, year: int, month: int, window_start, window_end, 
     return files
 
 
+def _ework_mailboxes() -> list:
+    """Mailboxes searched for Ework self-billing invoices: the invoice mailbox (also catches mails
+    forwarded to it) and, when configured, the mailbox Ework sends them to
+    (EWORK_EMAIL_USER / EWORK_EMAIL_PASS in .env, a Gmail app password)."""
+    boxes = [(settings.EMAIL_HOST, settings.EMAIL_USER, settings.EMAIL_PASS)]
+    user, pwd = os.getenv("EWORK_EMAIL_USER"), os.getenv("EWORK_EMAIL_PASS")
+    if user and pwd and user != settings.EMAIL_USER:
+        boxes.append((os.getenv("EWORK_EMAIL_HOST") or "imap.gmail.com", user, pwd))
+    return boxes
+
+
+def _fetch_ework_invoices(year: int, month: int, window_start, window_end) -> List[str]:
+    """
+    Ework Group "New Self Billing invoice SBIGAB... from Ework Group AB" mails (direct or forwarded),
+    PDF attached. They are matched to the sheet by amount, so the search window is generous.
+    """
+    import datetime
+    files: List[str] = []
+    tag = f"{MONTH_TAGS[month - 1]}{year}"
+    late_end = window_end + datetime.timedelta(days=20)
+    seen = set()
+    for host, user, pwd in _ework_mailboxes():
+        try:
+            mail = imaplib.IMAP4_SSL(host)
+            mail.login(user, pwd)
+            # search every folder (forwarded/archived mails are not in the inbox)
+            folder = "inbox"
+            for line in mail.list()[1]:
+                decoded = line.decode()
+                if "\\All" in decoded:
+                    folder = decoded.split(' "/" ')[-1]
+            mail.select(folder, readonly=True)
+            query = (f'"Self Billing invoice" ework has:attachment '
+                     f'after:{window_start.strftime("%Y/%m/%d")} before:{late_end.strftime("%Y/%m/%d")}')
+            result, data = mail.search(None, "X-GM-RAW", f'"{query.replace(chr(34), chr(92) + chr(34))}"')
+            if result != "OK":
+                result, data = mail.search(None, f'(SUBJECT "Self Billing invoice" SINCE "{window_start.strftime("%d-%b-%Y")}")')
+            for num in data[0].split():
+                result, msg_data = mail.fetch(num, "(BODY.PEEK[])")
+                msg = email.message_from_bytes(msg_data[0][1])
+                for part in msg.walk():
+                    fname = os.path.basename(part.get_filename() or "")
+                    if not fname.lower().endswith(".pdf") or not fname.upper().startswith("SBI") or fname in seen:
+                        continue
+                    seen.add(fname)
+                    path = os.path.abspath(os.path.join(settings.INVOICE_STORAGE_PATH, f"ework_{tag}_{fname}"))
+                    with open(path, "wb") as f:
+                        f.write(part.get_payload(decode=True))
+                    files.append(path)
+                    print(f"Downloaded Ework self-billing invoice: {os.path.basename(path)} (mailbox {user.split('@')[0][:3]}***)")
+            mail.logout()
+        except Exception as e:
+            print(f"Ework fetch from one mailbox failed: {e}")
+    return files
+
+
 def fetch_email_invoices(year: int, month: int) -> List[str]:
     """
     Connects to Gmail and downloads Wolt, Foodora, and Uber Eats payout reports/invoices.
@@ -505,6 +561,11 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
         mail.close()
         mail.logout()
         save_received_index(received_index)
+
+        try:
+            downloaded_files.extend(_fetch_ework_invoices(year, month, month_start, month_end))
+        except Exception as e:
+            print(f"Ework invoice fetch failed: {e}")
     except Exception as e:
         print(f"Error fetching emails: {e}")
 

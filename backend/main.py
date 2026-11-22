@@ -441,6 +441,7 @@ def _status_payload(extra: Optional[dict] = None) -> dict:
             "Foodora": bool(settings.EMAIL_USER),
             "UberEats": bool(settings.EMAIL_USER),
             "Wolt": bool(settings.EMAIL_USER),
+            "Ework": bool(os.getenv("EWORK_EMAIL_USER") and os.getenv("EWORK_EMAIL_PASS")),
             "Swish": True
         }
     }
@@ -538,7 +539,9 @@ async def _store_invoice_pdf(content: bytes, filename: str, year: Optional[int],
         buffer.write(content)
     text = (await asyncio.to_thread(extract_text_from_pdf, tmp_path)).lower()
     lowered = original.lower()
-    if "uber" in text or "uber" in lowered:
+    if "ework group" in text or lowered.startswith("sbi"):
+        tag = "ework"
+    elif "uber" in text or "uber" in lowered:
         tag = "ubereats"
     elif "wolt" in text or "wolt" in lowered:
         tag = "wolt"
@@ -546,7 +549,7 @@ async def _store_invoice_pdf(content: bytes, filename: str, year: Optional[int],
         tag = "foodora"
     else:
         os.remove(tmp_path)
-        raise HTTPException(status_code=400, detail="Could not tell which partner this invoice is from (Uber, Wolt or Foodora)")
+        raise HTTPException(status_code=400, detail="Could not tell which partner this invoice is from (Uber, Wolt, Foodora or Ework)")
 
     import re
     safe = re.sub(r'[^A-Za-z0-9._ -]', '_', original)
