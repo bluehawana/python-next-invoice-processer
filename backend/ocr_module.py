@@ -73,12 +73,15 @@ def extract_payout_amount_from_pdf(pdf_path: str, partner: str) -> Optional[floa
     if "uber" in partner.lower():
         for pattern in [
             r'Total\s+Betalning\s+([\d.]+,\d{2})\s*kr',   # 1.363,30 kr
+            r'Nettoutbetalning\s+([\d\s,]+)\s*kr',  # Nettoutbetalning 2 956,85 kr
             r'Total\s+Betalning\s+([\d.]+)\s*kr',          # 1.363.30 kr (two dots)
             r'Nettoförsäljning\s+([\d.]+)\s*kr',
         ]:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
                 raw = m.group(1)
+                # Handle Swedish format: spaces and comma (2 956,85)
+                raw = raw.replace(' ', '').replace('\xa0', '')
                 # Handle "1.363.30" (two dots) → remove all but last dot
                 parts = raw.split('.')
                 if len(parts) > 2:
@@ -142,124 +145,113 @@ def _parse_dot_number(s: str) -> Optional[float]:
 # ─────────────────────────────────────────────────────────────
 
 def _encode_image_base64(image_path: str) -> str:
-    """Read image (converting HEIC first) and return base64 string."""
-    ext = os.path.splitext(image_path)[1].lower()
-    if ext in (".heic", ".heif"):
-        print(f"[OCR] Converting HEIC: {image_path}")
-        img = Image.open(image_path)
-        new_path = image_path.rsplit(".", 1)[0] + ".jpg"
-        img.save(new_path, "JPEG")
-        image_path = new_path
+    """Normalise any photo (HEIC/PNG/JPG, any size/rotation) to a JPEG and return it base64-encoded."""
+    import io
+    from PIL import ImageOps
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    img.thumbnail((2400, 2400))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=90)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-    with open(image_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
+
+OCR_PROMPT = (
+    "This photo is a handwritten income record for a Swedish restaurant (Ichiban Sushi). "
+    "Each row starts with a label followed by a colon and a comma-separated list of amounts in SEK. "
+    "A row can wrap onto the following lines: amounts on a line WITHOUT a label belong to the label above. "
+    "Use these exact keys for the known partners:\n"
+    '- "Foodora"\n'
+    '- "Uber" (written as uber / uber eats)\n'
+    '- "Wolt"\n'
+    '- "Stripe" (written as hemsida / hem / hemleverans / website / stripe - the long list of small amounts)\n'
+    '- "Swish"\n'
+    "Any other label (for example Ework) keeps the name as written.\n"
+    "Read every digit carefully and copy each amount exactly as written, in order, "
+    "using a dot as the decimal separator (1 234,56 -> 1234.56). Do not skip, merge or round amounts. "
+    "Ignore totals/sums rows and anything crossed out.\n"
+    "Return ONLY a JSON object, no markdown, like:\n"
+    '{"Foodora": [23032.01], "Uber": [1017.25, 2540.2], "Wolt": [3234.64, 1668.34], "Stripe": [1389.85, 129.0]}'
+)
+
+
+def _vision_providers() -> List[Dict]:
+    """Vision models to try, in order. Cloud models first - they read handwriting far better."""
+    providers = []
+    zai_key = os.getenv("ZAI_API_KEY")
+    oai_key = os.getenv("OPENAI_API_KEY")
+    if zai_key:
+        providers.append({
+            "name": "Z.AI glm-4.5v",
+            "api_key": zai_key,
+            "base_url": "https://api.z.ai/api/paas/v4",
+            "model": "glm-4.5v",
+            # glm-4.5v "thinks" by default and burns the whole token budget on reasoning,
+            # returning an EMPTY answer. Thinking must be off for OCR.
+            "extra_body": {"thinking": {"type": "disabled"}},
+        })
+    if oai_key:
+        providers.append({
+            "name": "OpenAI gpt-4o",
+            "api_key": oai_key,
+            "base_url": None,
+            "model": "gpt-4o",
+            "extra_body": None,
+        })
+    ollama_host = os.getenv("OLLAMA_HOST")
+    if ollama_host:  # only when explicitly configured
+        providers.append({
+            "name": "Ollama llava:13b",
+            "api_key": "ollama",
+            "base_url": f"{ollama_host}/v1",
+            "model": "llava:13b",
+            "extra_body": None,
+        })
+    return providers
 
 
 def _call_vision_api(image_b64: str) -> str:
     """
-    Call vision API to extract handwritten amounts.
-    Tries in order: Ollama (local), Z.AI, OpenAI
+    Ask a vision model to read the handwritten sheet.
+    Tries each configured provider until one returns a parseable, non-empty answer.
     """
-    try:
-        import openai
+    import openai
 
-        # Try Ollama first (local, free)
-        ollama_available = os.getenv("OLLAMA_HOST") or "http://localhost:11434"
+    providers = _vision_providers()
+    if not providers:
+        print("[OCR] No vision API configured: set ZAI_API_KEY or OPENAI_API_KEY")
+        return ""
+
+    for prov in providers:
         try:
-            print("[OCR] Trying Ollama llama3.2-vision (local)")
-            client = openai.OpenAI(
-                api_key="ollama",  # Ollama doesn't need a key
-                base_url=f"{ollama_available}/v1",
-            )
-            model = "llava:13b"
-            # Test if Ollama is available
+            print(f"[OCR] Trying {prov['name']}")
+            kwargs = {"api_key": prov["api_key"], "timeout": 90}
+            if prov["base_url"]:
+                kwargs["base_url"] = prov["base_url"]
+            client = openai.OpenAI(**kwargs)
+            extra = {"extra_body": prov["extra_body"]} if prov["extra_body"] else {}
             response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_b64}"
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": (
-                                    "This is a handwritten income record for a Swedish restaurant (Ichiban Sushi). "
-                                    "Please extract all the amounts listed for each delivery partner. "
-                                    "The partners are typically: Wolt, Uber Eats (or Uber), Foodora, Stripe (or Hem/Hemleverans), Swish. "
-                                    "Return ONLY a JSON object like:\n"
-                                    '{"Wolt": [3234.64, 1668.34], "Uber": [1017.25, 2540.20], "Foodora": [23032.01], "Stripe": [1389.85], "Swish": [129.0]}\n'
-                                    "Use the amounts exactly as written (convert Swedish format 1 234,56 → 1234.56). "
-                                    "Ignore any totals/sums rows. "
-                                    "If a partner has no amounts, omit it. Return valid JSON only, no markdown."
-                                )
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=1000,
-            )
-            print("[OCR] ✓ Using Ollama llama3.2-vision (local)")
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"[OCR] Ollama not available: {e}")
-        
-        # Fall back to Z.AI
-        zai_key = os.getenv("ZAI_API_KEY")
-        oai_key = os.getenv("OPENAI_API_KEY")
-
-        if zai_key:
-            print("[OCR] Using Z.AI GLM-4.5V vision model")
-            client = openai.OpenAI(
-                api_key=zai_key,
-                base_url="https://api.z.ai/api/paas/v4",
-            )
-            model = "glm-4.5v"
-        elif oai_key:
-            print("[OCR] Using OpenAI GPT-4o vision model")
-            client = openai.OpenAI(api_key=oai_key)
-            model = "gpt-4o"
-        else:
-            raise ValueError("No vision API available: install Ollama or set ZAI_API_KEY/OPENAI_API_KEY")
-
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {
+                model=prov["model"],
+                messages=[{
                     "role": "user",
                     "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_b64}"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "This is a handwritten income record for a Swedish restaurant (Ichiban Sushi). "
-                                "Please extract all the amounts listed for each delivery partner. "
-                                "The partners are typically: Wolt, Uber Eats (or Uber), Foodora, Stripe (or Hem/Hemleverans), Swish. "
-                                "Return ONLY a JSON object like:\n"
-                                '{"Wolt": [3234.64, 1668.34], "Uber": [1017.25, 2540.20], "Foodora": [23032.01], "Stripe": [1389.85], "Swish": [129.0]}\n'
-                                "Use the amounts exactly as written (convert Swedish format 1 234,56 → 1234.56). "
-                                "Ignore any totals/sums rows. "
-                                "If a partner has no amounts, omit it. Return valid JSON only, no markdown."
-                            )
-                        }
-                    ]
-                }
-            ],
-            max_tokens=1000,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"[OCR] Vision API error: {e}")
-        return ""
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                        {"type": "text", "text": OCR_PROMPT},
+                    ],
+                }],
+                max_tokens=4000,
+                temperature=0,
+                **extra,
+            )
+            text = (response.choices[0].message.content or "").strip()
+            if text and _parse_ocr_response(text):
+                print(f"[OCR] ✓ {prov['name']} answered")
+                return text
+            print(f"[OCR] {prov['name']} returned nothing usable "
+                  f"(finish_reason={response.choices[0].finish_reason}), trying next provider")
+        except Exception as e:
+            print(f"[OCR] {prov['name']} failed: {e}")
+    return ""
 
 
 def _parse_ocr_response(response_text: str) -> Dict[str, List[float]]:
@@ -315,6 +307,17 @@ def process_handwritten_image(image_path: str) -> Dict[str, List[float]]:
 # ─────────────────────────────────────────────────────────────
 # 3.  Reconciliation – match handwritten amounts against PDFs
 # ─────────────────────────────────────────────────────────────
+
+def _digit_distance(a: str, b: str) -> int:
+    """Edit distance between two amount strings (number of digits inserted/removed/changed)."""
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
 
 def _amounts_match(handwritten: float, pdf_amount: float, tolerance: float = 5.0) -> bool:
     """
@@ -372,8 +375,7 @@ def reconcile_invoices(
             print(f"[RECONCILE] {os.path.basename(fpath)} → extracted amount: {amt}")
 
     # ── Stripe: match against API payout amounts ─────────────────────────
-    stripe_amount_map: Dict[float, Dict] = {p["amount"]: p for p in stripe_payouts}
-    
+
     # Build Stripe PDF file map (payout_id -> file_path)
     stripe_pdf_map: Dict[str, str] = {}
     for fpath in file_map.get("stripe", []):
@@ -394,28 +396,57 @@ def reconcile_invoices(
         unmatched_hw: List[float] = []
 
         if partner_key == "stripe":
-            # Match each handwritten amount against Stripe payout amounts
-            used_stripe = set()
-            for hw_amt in hw_amounts:
-                best = None
-                best_diff = float("inf")
-                for sa, payout in stripe_amount_map.items():
-                    if sa in used_stripe:
+            # Pass 1: each handwritten amount against the real Stripe payouts (closest, within 5 SEK)
+            used_stripe: set = set()   # indexes into stripe_payouts
+            pending: List[Tuple[int, float]] = []
+            slots: List[Optional[Dict]] = [None] * len(hw_amounts)
+
+            def _stripe_match(i, hw_amt, idx, corrected=False):
+                payout = stripe_payouts[idx]
+                used_stripe.add(idx)
+                pdf_path = stripe_pdf_map.get(payout.get("id", ""), payout.get("report_url", ""))
+                slots[i] = {"hw": hw_amt, "pdf": payout["amount"], "diff": abs(hw_amt - payout["amount"]),
+                            "file": pdf_path, "corrected": corrected}
+
+            for i, hw_amt in enumerate(hw_amounts):
+                best_idx, best_diff = None, float("inf")
+                for idx, payout in enumerate(stripe_payouts):
+                    if idx in used_stripe:
                         continue
-                    diff = abs(hw_amt - sa)
+                    diff = abs(hw_amt - payout["amount"])
                     if diff < best_diff:
-                        best_diff = diff
-                        best = (sa, payout)
-                if best and best_diff <= 5.0:
-                    used_stripe.add(best[0])
-                    payout_id = best[1].get("id", "")
-                    pdf_path = stripe_pdf_map.get(payout_id, best[1].get("report_url", ""))
-                    matches.append({"hw": hw_amt, "pdf": best[0], "diff": best_diff, "file": pdf_path})
+                        best_idx, best_diff = idx, diff
+                if best_idx is not None and best_diff <= 5.0:
+                    _stripe_match(i, hw_amt, best_idx)
+                else:
+                    pending.append((i, hw_amt))
+
+            # Pass 2: a single misread/missing digit (360.72 vs 3610.72, 1193.23 vs 193.23).
+            # Only accepted when exactly ONE unused payout is that close, so it cannot guess.
+            for i, hw_amt in pending:
+                candidates = [idx for idx, payout in enumerate(stripe_payouts)
+                              if idx not in used_stripe
+                              and _digit_distance(f"{hw_amt:.2f}", f"{payout['amount']:.2f}") <= 1]
+                distinct = {stripe_payouts[idx]["amount"] for idx in candidates}
+                if len(distinct) == 1:
+                    _stripe_match(i, hw_amt, candidates[0], corrected=True)
+
+            for i, hw_amt in enumerate(hw_amounts):
+                if slots[i]:
+                    matches.append(slots[i])
                 else:
                     unmatched_hw.append(hw_amt)
 
             # Attach any Stripe PDFs too
-            relevant_files = file_map.get("stripe", [])
+            # Matched payouts first, then the rest of THIS month's payouts (not every Stripe PDF on disk)
+            relevant_files = [m["file"] for m in matches if m.get("file") and os.path.exists(m["file"])]
+            if stripe_payouts:
+                for payout in stripe_payouts:
+                    f = stripe_pdf_map.get(payout.get("id", ""))
+                    if f and f not in relevant_files:
+                        relevant_files.append(f)
+            else:
+                relevant_files = list(file_map.get("stripe", []))
             for f in relevant_files:
                 matched_pdf_paths.add(f)
 
@@ -490,16 +521,34 @@ def reconcile_invoices(
     return results
 
 
+def canonical_partner_label(label: str) -> str:
+    """Map whatever was written/recognised ("uber eats", "hemsida", ...) to the display label."""
+    key = _normalise_partner_key(label)
+    return {"wolt": "Wolt", "uber": "Uber", "foodora": "Foodora", "stripe": "Stripe", "swish": "Swish"}.get(
+        key, label.strip()
+    )
+
+
+def normalise_handwritten(data: Dict[str, List[float]]) -> Dict[str, List[float]]:
+    """Canonicalise partner labels and merge rows that map to the same partner."""
+    result: Dict[str, List[float]] = {}
+    for label, amounts in data.items():
+        result.setdefault(canonical_partner_label(label), []).extend(amounts)
+    return result
+
+
 def _normalise_partner_key(label: str) -> str:
     """Map display labels to canonical keys."""
-    label_lower = label.lower()
+    label_lower = label.lower().strip()
+    if not label_lower:
+        return "unknown"
     if "wolt" in label_lower:
         return "wolt"
     if "uber" in label_lower:
         return "uber"
     if "foodora" in label_lower:
         return "foodora"
-    if "stripe" in label_lower or "hem" in label_lower:
+    if "stripe" in label_lower or "hem" in label_lower or "website" in label_lower or label_lower.startswith("hers"):
         return "stripe"
     if "swish" in label_lower:
         return "swish"

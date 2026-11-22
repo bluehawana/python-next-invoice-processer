@@ -2,12 +2,12 @@ from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
 import shutil
 from stripe_module import download_stripe_payouts, generate_payout_reports, settings
-from ocr_module import process_handwritten_image, reconcile_invoices
-from email_module import fetch_email_invoices
+from ocr_module import process_handwritten_image, reconcile_invoices, normalise_handwritten
+from email_module import fetch_email_invoices, payment_window, load_received_index
 from print_module import batch_print_invoices, print_pdf
 from bankgiro_module import fetch_bankgiro_data, generate_bankgiro_report
 from r2_module import upload_file_to_r2, generate_presigned_url
@@ -39,185 +39,300 @@ app.mount("/static/invoices", StaticFiles(directory=settings.INVOICE_STORAGE_PAT
 # --- Global State ---
 handwritten_records = {}
 reconciliation_results = []
+current_period = {"year": 0, "month": 0}   # the payment month the dashboard is working on
+sync_state = {"running": False, "message": ""}
 
-# Persistent storage for handwritten data
-HANDWRITTEN_DATA_FILE = "handwritten_data_persistent.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Legacy single-file storage (pre per-month storage). Only read once, for migration.
+HANDWRITTEN_DATA_FILE = os.path.join(BASE_DIR, "handwritten_data_persistent.json")
+HANDWRITTEN_DIR = os.path.join(BASE_DIR, "handwritten_data")
+PERIOD_STATE_FILE = os.path.join(HANDWRITTEN_DIR, "current_period.json")
+MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+
+def default_period() -> tuple:
+    """Invoices are collected for the PREVIOUS calendar month."""
+    import datetime
+    first = datetime.date.today().replace(day=1)
+    prev = first - datetime.timedelta(days=1)
+    return prev.year, prev.month
+
+
+def _valid_period(year: Optional[int], month: Optional[int]) -> bool:
+    return bool(year and month and 2020 <= year <= 2100 and 1 <= month <= 12)
 
 def _filter_month_files(files: list, year: int, month: int) -> list:
     """Return only invoices for the specified payment month.
-    
+
     CRITICAL BUSINESS LOGIC - PAYMENT PERIOD RULES:
     ================================================
-    Foodora & Uber have ~2 week payment delays:
+    Wolt, Foodora & Uber have ~2 week payment delays:
     - Work done in last 2 weeks of PREVIOUS month gets paid in CURRENT month
     - Work done in first 2 weeks of CURRENT month gets paid in CURRENT month
-    
-    Example: August 2026 payment includes:
-    - Invoices from Jul 16-31 (late July work)
-    - Invoices from Aug 1-15 (early August work)
-    
+
+    Example: October payment includes invoices from Sep 15-30 AND from October.
     Therefore: Always include invoices from BOTH months!
+
+    How a file is placed in a month, in order of reliability:
+    1. The date its email was received (recorded by the email fetch) - inside the payment window.
+    2. Dates / month names in the file name.
+    3. Legacy fallback: the email sequence number in the file name (rough estimate).
     """
+    import re, datetime
     result = []
     prev_month = month - 1 if month > 1 else 12
     prev_year = year if month > 1 else year - 1
-    
+    window_start, window_end = payment_window(year, month)
+    received_index = load_received_index()
+    month_tag = f"{MONTH_NAMES[month - 1]}{year}"
+    prev_tag = f"{MONTH_NAMES[prev_month - 1]}{prev_year}"
+
+    def in_window(date_str: str) -> bool:
+        try:
+            return window_start <= datetime.date.fromisoformat(date_str) < window_end
+        except Exception:
+            return False
+
     for f in files:
-        name = os.path.basename(f).lower()
-        
-        # Manual invoices with month name (e.g., aug2026, sep2026)
-        month_names = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
-        target_month_name = month_names[month - 1]
-        if f"{target_month_name}{year}" in name:
-            result.append(f)
-            
-        # Wolt: semi-monthly periods with dates in filename
+        base = os.path.basename(f)
+        name = base.lower()
+        keep = False
+
+        # Stripe: every payout PDF is kept; matching is done against the month's payouts from the API
+        if "stripe_payout" in name:
+            keep = True
+
+        # 1. Received date known -> the payment window decides
+        elif base in received_index:
+            keep = in_window(received_index[base])
+
+        # 2a. Manual invoices named with a month (e.g. ubereats_oct2026_week3_...):
+        #     the target month, plus the last two weeks (week 3+) of the previous month
+        elif month_tag in name:
+            keep = True
+        elif prev_tag in name:
+            wk = re.search(r'week(\d+)', name)
+            keep = (not wk) or int(wk.group(1)) >= 3
+
+        # 2b. Wolt: semi-monthly period dates in the file name
         elif "wolt" in name:
-            if f"{year}-{month:02d}" in name or f"{prev_year}-{prev_month:02d}-16__{year}-{month:02d}-01" in name:
-                result.append(f)
-                
-        # Foodora: Include invoices from late previous month + current month
-        # Match by invoice number pattern (7-digit starting with 7002...)
+            periods = re.findall(r'(\d{4}-\d{2}-\d{2})__(\d{4}-\d{2}-\d{2})', name)
+            if periods:
+                # the report is issued when the period ends -> period end date inside the payment window,
+                # and the period itself not older than the last two weeks of the previous month
+                start_s, end_s = periods[-1]
+                try:
+                    p_start = datetime.date.fromisoformat(start_s)
+                    p_end = datetime.date.fromisoformat(end_s)
+                    keep = p_start >= window_start and p_end < window_end
+                except Exception:
+                    keep = False
+            else:
+                keep = f"{year}-{month:02d}" in name
+
+        # 3. Legacy Foodora / Uber files: estimate from the email sequence number
         elif "foodora" in name:
-            import re
-            # Try ID-based match first (for email-fetched invoices with IDs like foodora_11xxx)
             m = re.search(r'foodora_(\d+)_', name)
             if m and len(m.group(1)) < 6:
-                # ID-based: 50 IDs per month, include previous 100 IDs
-                invoice_id = int(m.group(1))
                 base_id = 11000 + (year - 2025) * 600 + month * 50
-                if invoice_id in range(base_id - 100, base_id + 100):
-                    result.append(f)
+                keep = int(m.group(1)) in range(base_id - 100, base_id + 100)
             else:
-                # Invoice number based (7002xxxxxx format) - include all for the target month
-                # Since we can't reliably determine month from invoice number, include if it contains target year
-                if f"{year}" in name or f"{year-1}" in name:
-                    result.append(f)
-                    
-        # Uber: Include invoices from late previous month + current month
+                # invoice-number based name (7002xxxxxx): month unknown, keep as a candidate
+                keep = True
         elif "uber" in name:
-            import re
             m = re.search(r'ubereats_(\d+)_', name)
             if m:
-                # Rough estimate: 50 IDs per month, include previous 200 IDs
                 base_id = 11000 + (year - 2025) * 600 + month * 50
-                if int(m.group(1)) in range(base_id - 200, base_id + 100):
-                    result.append(f)
-                    
-        # Stripe: Include all Stripe payout PDFs, reconciliation matches by API data
-        # Stripe IDs are sequential (po_1U..., po_1V..., etc.) across all months
-        # The API data will handle month filtering, so just include all PDFs
-        elif "stripe_payout" in name:
+                keep = int(m.group(1)) in range(base_id - 200, base_id + 100)
+
+        if keep:
             result.append(f)
-                
-    return result
+
+    # The same attachment is sometimes downloaded twice under different email numbers
+    # (wolt_11870_X.pdf / wolt_11884_X.pdf). Keep one copy, preferring the one with a known date.
+    deduped, by_identity = [], {}
+    for f in result:
+        base = os.path.basename(f)
+        m = re.match(r'^(wolt|foodora|ubereats)_\d+_(.+)$', base, re.IGNORECASE)
+        if not m or m.group(2).lower() == "email_body.pdf":
+            deduped.append(f)
+            continue
+        identity = (m.group(1).lower(), m.group(2).lower())
+        if identity not in by_identity:
+            by_identity[identity] = len(deduped)
+            deduped.append(f)
+        elif base in received_index and os.path.basename(deduped[by_identity[identity]]) not in received_index:
+            deduped[by_identity[identity]] = f
+    return deduped
+
+def _handwritten_file(year: int, month: int) -> str:
+    return os.path.join(HANDWRITTEN_DIR, f"{year}-{month:02d}.json")
+
 
 def save_handwritten_data():
-    """Save handwritten data to disk for persistence across restarts"""
+    """Save the handwritten amounts of the current month (one file per month, nothing is overwritten)."""
     import json
     try:
-        # Only save if there's actual data to prevent overwriting with empty dict
-        if handwritten_records:
-            with open(HANDWRITTEN_DATA_FILE, 'w') as f:
+        os.makedirs(HANDWRITTEN_DIR, exist_ok=True)
+        if handwritten_records:  # never overwrite a month with an empty dict
+            with open(_handwritten_file(current_period["year"], current_period["month"]), 'w') as f:
                 json.dump(handwritten_records, f, indent=2)
-            print(f"[PERSIST] Saved handwritten data: {len(handwritten_records)} partners")
-        else:
-            print(f"[PERSIST] Skipping save - no handwritten data to persist")
+            print(f"[PERSIST] Saved handwritten data for {current_period}: {len(handwritten_records)} partners")
+        with open(PERIOD_STATE_FILE, 'w') as f:
+            json.dump(current_period, f)
     except Exception as e:
         print(f"[PERSIST] Error saving handwritten data: {e}")
 
-def load_handwritten_data():
-    """Load handwritten data from disk"""
-    global handwritten_records
+
+def load_handwritten_data(year: int, month: int) -> dict:
+    """Load the handwritten amounts stored for a month ({} if none)."""
     import json
     try:
-        if os.path.exists(HANDWRITTEN_DATA_FILE):
-            with open(HANDWRITTEN_DATA_FILE, 'r') as f:
-                handwritten_records = json.load(f)
-            print(f"[PERSIST] Loaded handwritten data: {len(handwritten_records)} partners")
-            return True
+        path = _handwritten_file(year, month)
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                return json.load(f)
     except Exception as e:
         print(f"[PERSIST] Error loading handwritten data: {e}")
-    return False
+    return {}
+
+
+def set_period(year: int, month: int):
+    """Switch the dashboard to another payment month and load that month's handwritten amounts."""
+    global handwritten_records
+    if current_period["year"] == year and current_period["month"] == month:
+        return
+    current_period["year"], current_period["month"] = year, month
+    handwritten_records = load_handwritten_data(year, month)
+    save_handwritten_data()
+    print(f"[PERIOD] Now working on {year}-{month:02d} ({len(handwritten_records)} handwritten partners)")
+
+
+def _invoice_dir() -> str:
+    path = os.path.abspath(os.path.join(BASE_DIR, settings.INVOICE_STORAGE_PATH))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _manual_dir() -> str:
+    path = os.path.join(os.path.dirname(_invoice_dir()), "manual_invoices")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _period_files_on_disk(year: int, month: int) -> list:
+    """Every PDF already on the server that belongs to this payment month."""
+    import glob
+    files = glob.glob(os.path.join(_invoice_dir(), "*.pdf"))
+    seen = {os.path.basename(f) for f in files}
+    for mf in glob.glob(os.path.join(_manual_dir(), "*.pdf")):
+        if os.path.basename(mf) not in seen:
+            files.append(mf)
+    return _filter_month_files(files, year, month)
+
+
+def reconcile_from_disk() -> int:
+    """Match the handwritten amounts of the current month against the PDFs already downloaded.
+    Blocking (Stripe API + PDF parsing) - call it through asyncio.to_thread from endpoints."""
+    global reconciliation_results
+    year, month = current_period["year"], current_period["month"]
+    files = _period_files_on_disk(year, month)
+    try:
+        st_payouts = download_stripe_payouts(year, month)
+    except Exception as e:
+        print(f"[RECONCILE] Stripe payouts unavailable: {e}")
+        st_payouts = []
+    reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, files)
+    print(f"[RECONCILE] {year}-{month:02d}: {len(files)} PDFs, {len(handwritten_records)} handwritten partners")
+    return len(files)
+
 
 @app.on_event("startup")
 async def startup_auto_reconcile():
-    """On startup, auto-reconcile using any PDFs already on disk so state survives restarts."""
-    global reconciliation_results
-    import glob
-    import datetime
-    
-    # Load persisted handwritten data
-    load_handwritten_data()
+    """On startup, restore the month we were working on and re-match from the PDFs on disk."""
+    global handwritten_records
+    import json
 
-    # Use absolute path to avoid relative path issues with systemd
-    invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
-    os.makedirs(invoice_dir, exist_ok=True)
+    year, month = default_period()
+    first_run = not os.path.exists(PERIOD_STATE_FILE)
+    try:
+        if not first_run:
+            with open(PERIOD_STATE_FILE) as f:
+                saved = json.load(f)
+            if _valid_period(saved.get("year"), saved.get("month")):
+                year, month = saved["year"], saved["month"]
+    except Exception as e:
+        print(f"[STARTUP] Could not read saved period: {e}")
 
-    # Get all PDF files without month filtering - let reconciliation handle matching
-    existing_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
-    
-    # Get invoices for September 2026 (includes late August per business rules)
-    existing_files = _filter_month_files(glob.glob(os.path.join(invoice_dir, "*.pdf")), 2026, 9)
-    
-    print(f"[STARTUP] Invoice dir: {invoice_dir}")
-    print(f"[STARTUP] Found {len(existing_files)} existing PDFs")
-    print(f"[STARTUP] Loaded handwritten data for {len(handwritten_records)} partners")
-    
-    if existing_files and handwritten_records:
+    current_period["year"], current_period["month"] = year, month
+    handwritten_records = load_handwritten_data(year, month)
+
+    # One-time migration from the old single-file storage
+    if first_run and not handwritten_records and os.path.exists(HANDWRITTEN_DATA_FILE):
         try:
-            # Try to get Stripe payouts for current display month (September 2026)
-            st_payouts = download_stripe_payouts(2026, 9)
-        except Exception:
-            st_payouts = []
-        reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, existing_files)
-        print(f"[STARTUP] Auto-reconcile complete: {len(reconciliation_results)} partners")
-    else:
-        print(f"[STARTUP] Skipping reconciliation: files={len(existing_files)}, handwritten={len(handwritten_records)}")
+            with open(HANDWRITTEN_DATA_FILE) as f:
+                handwritten_records = normalise_handwritten(json.load(f))
+            print(f"[STARTUP] Migrated legacy handwritten data into {year}-{month:02d}")
+        except Exception as e:
+            print(f"[STARTUP] Legacy handwritten data unreadable: {e}")
+    save_handwritten_data()
+
+    print(f"[STARTUP] Period {year}-{month:02d}, handwritten partners: {len(handwritten_records)}")
+    try:
+        await asyncio.to_thread(reconcile_from_disk)
+    except Exception as e:
+        print(f"[STARTUP] Auto-reconcile failed: {e}")
 
 # --- Background Workflows ---
 async def run_unified_workflow(year: int, month: int):
+    """Download everything for a payment month, then match it against the handwritten amounts."""
     global reconciliation_results
     print(f"--- Background Sync for {year}-{month:02d} ---")
-    
-    # 1. Collect
-    st_payouts = download_stripe_payouts(year, month)
-    email_files = fetch_email_invoices(year, month)
-    
-    payout_ids = [p['id'] for p in st_payouts]
-    stripe_pdfs = []
+    sync_state["running"] = True
     try:
-        stripe_pdfs = await generate_payout_reports(payout_ids)
-        print(f"Generated {len(stripe_pdfs)} Stripe PDF reports")
+        # 1. Collect (blocking network work runs in threads so the API stays responsive)
+        sync_state["message"] = "Fetching Stripe payouts..."
+        try:
+            st_payouts = await asyncio.to_thread(download_stripe_payouts, year, month)
+        except Exception as e:
+            print(f"WARNING: Stripe payouts failed: {e}")
+            st_payouts = []
+
+        sync_state["message"] = "Fetching Wolt / Foodora / Uber invoices from email..."
+        try:
+            email_files = await asyncio.to_thread(fetch_email_invoices, year, month)
+        except Exception as e:
+            print(f"WARNING: Email invoice fetch failed: {e}")
+            email_files = []
+
+        sync_state["message"] = f"Generating {len(st_payouts)} Stripe payout reports..."
+        stripe_pdfs = []
+        try:
+            stripe_pdfs = await generate_payout_reports([p['id'] for p in st_payouts])
+            print(f"Generated {len(stripe_pdfs)} Stripe PDF reports")
+        except Exception as e:
+            print(f"WARNING: Stripe PDF generation failed: {e}")
+
+        # 2. Reconcile: freshly downloaded files + everything already on disk for this month
+        sync_state["message"] = "Matching invoices against handwritten amounts..."
+        all_files = list(email_files) + list(stripe_pdfs)
+        seen = {os.path.basename(f) for f in all_files}
+        for f in _period_files_on_disk(year, month):
+            if os.path.basename(f) not in seen:
+                all_files.append(f)
+        month_files = _filter_month_files(all_files, year, month)
+
+        if current_period["year"] == year and current_period["month"] == month:
+            reconciliation_results = await asyncio.to_thread(
+                reconcile_invoices, handwritten_records, st_payouts, month_files
+            )
+        print(f"--- Sync Completed. {len(month_files)} files for {year}-{month:02d} payment period. ---")
+        sync_state["message"] = f"Sync complete: {len(month_files)} invoices for {year}-{month:02d}"
     except Exception as e:
-        print(f"WARNING: Stripe PDF generation failed: {e}")
-        print("Continuing with email invoices only...")
-    
-    # Inject manually-created PDFs from a persistent folder (never cleaned up)
-    import glob
-    manual_dir = os.path.join(os.path.dirname(os.path.abspath(settings.INVOICE_STORAGE_PATH)), "manual_invoices")
-    os.makedirs(manual_dir, exist_ok=True)
-    email_basenames = {os.path.basename(f) for f in email_files}
-    for mf in glob.glob(os.path.join(manual_dir, "*.pdf")):
-        if os.path.basename(mf) not in email_basenames:
-            email_files.append(mf)
-            print(f"Injected manual PDF: {os.path.basename(mf)}")
-    
-    all_files = email_files + stripe_pdfs
-
-    # Also inject manual Aug 2026 PDFs (e.g. Uber manual invoices in invoices/)
-    import re
-    invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
-    for mf in glob.glob(os.path.join(invoice_dir, "*.pdf")):
-        name = os.path.basename(mf).lower()
-        if "aug2026" in name and mf not in all_files:
-            all_files.append(mf)
-            print(f"Injected Aug2026 manual PDF: {os.path.basename(mf)}")
-
-    # 2. Reconcile using payment-period-aware file filter
-    aug_files = _filter_month_files(all_files, year, month)
-    reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, aug_files)
-    print(f"--- Sync Completed. {len(aug_files)} files for {year}-{month:02d} payment period. ---")
+        print(f"--- Sync FAILED: {e} ---")
+        sync_state["message"] = f"Sync failed: {e}"
+    finally:
+        sync_state["running"] = False
 
 # --- Endpoints ---
 @app.get("/")
@@ -229,13 +344,25 @@ from fastapi.responses import RedirectResponse
 @app.get("/view-file")
 def view_file(path: str):
     """
-    Serves invoice files from the local VPS storage.
-    Path should be just the filename (not full path).
+    Serves invoice files directly - no redirect, so CORS and browser open/print/download all work.
     """
-    # Extract just the filename
+    import mimetypes
+    from fastapi.responses import FileResponse
     filename = os.path.basename(path)
-    # Serve from static mount
-    return RedirectResponse(f"/static/invoices/{filename}")
+    full_path = os.path.join(_invoice_dir(), filename)
+    if not os.path.exists(full_path):
+        full_path = os.path.join(_manual_dir(), filename)
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    mime_type, _ = mimetypes.guess_type(full_path)
+    return FileResponse(
+        path=full_path,
+        media_type=mime_type or "application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-cache",
+        }
+    )
 
 @app.post("/upload-seb-transactions")
 async def upload_seb_transactions(file: UploadFile = File(...), year: int = 2026, month: int = 1):
@@ -270,84 +397,15 @@ async def upload_seb_transactions(file: UploadFile = File(...), year: int = 2026
         "data": bankgiro_data
     }
 
-@app.post("/upload-paper")
-async def upload_paper(file: UploadFile = File(...)):
-    global handwritten_records, reconciliation_results
-    os.makedirs("uploads", exist_ok=True)
-    file_path = f"uploads/{file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    parsed_data = process_handwritten_image(file_path)
-    if parsed_data:
-        handwritten_records = parsed_data
-        save_handwritten_data()  # Only persist if OCR actually found something
-    reconciliation_results = reconcile_invoices(handwritten_records, [], [])
-    
-    return {"message": "OCR Complete. Recognition results loaded.", "results": reconciliation_results}
-
-class ManualHandwrittenInput(BaseModel):
-    """Manual input of handwritten amounts when OCR is not available."""
-    records: Dict[str, List[float]]
-
-@app.post("/upload-handwritten-manual")
-async def upload_handwritten_manual(data: ManualHandwrittenInput):
-    """
-    Manually enter handwritten amounts when OCR/vision API is unavailable.
-    Example body: {"records": {"Wolt": [3234.64, 1668.34], "Uber": [1017.25]}}
-    """
-    global handwritten_records, reconciliation_results
-    
-    # Normalise keys to handle "Uber Eats" → "Uber", "Hem" → "Stripe"
-    normalised = {}
-    for partner, amounts in data.records.items():
-        p_lower = partner.lower().strip()
-        if "wolt" in p_lower:
-            normalised["Wolt"] = amounts
-        elif "uber" in p_lower:
-            normalised["Uber"] = amounts
-        elif "foodora" in p_lower:
-            normalised["Foodora"] = amounts
-        elif "stripe" in p_lower or "hem" in p_lower:
-            normalised["Stripe"] = amounts
-        elif "swish" in p_lower:
-            normalised["Swish"] = amounts
-        else:
-            normalised[partner] = amounts
-    
-    handwritten_records = normalised
-    save_handwritten_data()  # Persist to disk
-    
-    # Scan for payment month files (includes late previous month per business rules)
-    import glob, datetime
-    invoice_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), settings.INVOICE_STORAGE_PATH))
-    all_files = glob.glob(os.path.join(invoice_dir, "*.pdf"))
-    existing_files = _filter_month_files(all_files, 2026, 9)
-    
-    # Get Stripe payouts for the display month (September 2026)
-    try:
-        from stripe_module import download_stripe_payouts
-        st_payouts = download_stripe_payouts(2026, 9)
-    except Exception:
-        st_payouts = []
-    
-    # Debug: Count Stripe files
-    stripe_files_count = len([f for f in existing_files if "stripe" in os.path.basename(f).lower()])
-    print(f"[MANUAL-UPLOAD] Total files: {len(existing_files)}, Stripe: {stripe_files_count}")
-    
-    reconciliation_results = reconcile_invoices(handwritten_records, st_payouts, existing_files)
-    
-    return {
-        "message": f"Manual records loaded: {len(normalised)} partners, found {len(existing_files)} PDFs",
-        "records": normalised,
-        "results": reconciliation_results
-    }
-
-@app.get("/reconciliation-status")
-def get_reconciliation_status():
-    return {
-        "status": "success", 
+def _status_payload(extra: Optional[dict] = None) -> dict:
+    payload = {
+        "status": "success",
         "records": reconciliation_results,
+        "results": reconciliation_results,
+        "period": dict(current_period),
+        "syncing": sync_state["running"],
+        "sync_message": sync_state["message"],
+        "has_handwritten": bool(handwritten_records),
         "config": {
             "Stripe": bool(settings.STRIPE_API_KEY),
             "Foodora": bool(settings.EMAIL_USER),
@@ -356,8 +414,123 @@ def get_reconciliation_status():
             "Swish": True
         }
     }
+    if extra:
+        payload.update(extra)
+    return payload
 
-@app.post("/print-file")
+
+@app.post("/upload-paper")
+async def upload_paper(file: UploadFile = File(...), year: Optional[int] = None, month: Optional[int] = None):
+    """
+    Photo of the handwritten sheet -> AI reads the amounts -> matched against the invoices
+    of the given payment month (defaults to the month the dashboard is on).
+    """
+    global handwritten_records
+    if not _valid_period(year, month):
+        year, month = current_period["year"], current_period["month"]
+
+    upload_dir = os.path.join(BASE_DIR, "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = os.path.basename(file.filename or "handwritten.jpg")
+    file_path = os.path.join(upload_dir, f"{year}-{month:02d}_{safe_name}")
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    parsed_data = await asyncio.to_thread(process_handwritten_image, file_path)
+    if not parsed_data:
+        # Do NOT pretend it worked and do not touch the stored amounts
+        return _status_payload({
+            "ocr_ok": False,
+            "message": "Could not read any amounts from this photo. Try a sharper, well-lit photo of the whole sheet.",
+        })
+
+    set_period(year, month)
+    handwritten_records = normalise_handwritten(parsed_data)
+    save_handwritten_data()
+    files_found = await asyncio.to_thread(reconcile_from_disk)
+
+    return _status_payload({
+        "ocr_ok": True,
+        "message": "OCR Complete. Recognition results loaded.",
+        "handwritten": handwritten_records,
+        "files_found": files_found,
+    })
+
+class ManualHandwrittenInput(BaseModel):
+    """Manual input of handwritten amounts when OCR is not available."""
+    records: Dict[str, List[float]]
+
+@app.post("/upload-handwritten-manual")
+async def upload_handwritten_manual(data: ManualHandwrittenInput, year: Optional[int] = None, month: Optional[int] = None):
+    """
+    Manually enter/correct handwritten amounts.
+    Example body: {"records": {"Wolt": [3234.64, 1668.34], "Uber": [1017.25]}}
+    """
+    global handwritten_records
+    if not _valid_period(year, month):
+        year, month = current_period["year"], current_period["month"]
+
+    set_period(year, month)
+    handwritten_records = normalise_handwritten(data.records)
+    save_handwritten_data()
+    files_found = await asyncio.to_thread(reconcile_from_disk)
+
+    return _status_payload({
+        "message": f"Manual records loaded: {len(handwritten_records)} partners, found {files_found} PDFs",
+        "handwritten": handwritten_records,
+        "files_found": files_found,
+    })
+
+@app.get("/reconciliation-status")
+async def get_reconciliation_status(year: Optional[int] = None, month: Optional[int] = None):
+    """Current matching result. Passing another year/month switches the dashboard to that month."""
+    if _valid_period(year, month) and (year, month) != (current_period["year"], current_period["month"]) \
+            and not sync_state["running"]:
+        set_period(year, month)
+        await asyncio.to_thread(reconcile_from_disk)
+    return _status_payload()
+
+class MergeRequest(BaseModel):
+    file_paths: List[str]
+
+@app.post("/merged-pdf")
+def merged_pdf(req: MergeRequest):
+    """
+    One PDF containing all the given invoices, ready for a single Ctrl/Cmd+P in the browser.
+    Wolt/Foodora/Uber invoices contribute their first page only (same rule as server printing).
+    """
+    import tempfile
+    from pypdf import PdfReader, PdfWriter
+    from fastapi.responses import FileResponse
+
+    writer = PdfWriter()
+    added = 0
+    for raw in req.file_paths:
+        name = os.path.basename(raw)
+        path = os.path.join(_invoice_dir(), name)
+        if not os.path.exists(path):
+            path = os.path.join(_manual_dir(), name)
+        if not name.lower().endswith(".pdf") or not os.path.exists(path):
+            continue
+        try:
+            reader = PdfReader(path)
+            first_page_only = any(p in name.lower() for p in ["wolt", "foodora", "uber", "eats"])
+            pages = reader.pages[:1] if first_page_only else reader.pages
+            for page in pages:
+                writer.add_page(page)
+            added += 1
+        except Exception as e:
+            print(f"[MERGE] Skipping {name}: {e}")
+    if added == 0:
+        raise HTTPException(status_code=404, detail="None of the requested invoices were found")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", prefix="invoices_merged_")
+    with open(tmp.name, "wb") as f:
+        writer.write(f)
+    out_name = f"invoices_{current_period['year']}-{current_period['month']:02d}.pdf"
+    return FileResponse(tmp.name, media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{out_name}"'})
+
 @app.post("/print-file")
 def print_file_endpoint(file_path: str):
     # Handle R2 Remote Files
@@ -408,9 +581,16 @@ def delete_all_invoices():
     return {"message": f"Deleted {len(deleted)} files", "files": deleted}
 
 @app.post("/trigger-download")
-async def trigger_download(background_tasks: BackgroundTasks, year: int = 2025, month: int = 12):
+async def trigger_download(background_tasks: BackgroundTasks, year: Optional[int] = None, month: Optional[int] = None):
+    if not _valid_period(year, month):
+        year, month = default_period()
+    if sync_state["running"]:
+        return {"message": "Sync already running", "period": dict(current_period)}
+    set_period(year, month)
+    sync_state["running"] = True
+    sync_state["message"] = "Starting sync..."
     background_tasks.add_task(run_unified_workflow, year, month)
-    return {"message": "Sync started"}
+    return {"message": "Sync started", "period": dict(current_period)}
 
 @app.post("/generate-monthly-invoices")
 async def generate_monthly_invoices(year: int, month: int):

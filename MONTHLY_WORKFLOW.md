@@ -109,7 +109,7 @@ This matches Foodora/Uber payment schedules and is coded in:
 ```bash
 cd frontend
 npm run build
-npx wrangler pages deploy out --project-name=invoices
+npx wrangler pages deploy out --project-name=python-next-invoice-processer --branch=main
 ```
 
 ### Problem: No invoices showing after upload

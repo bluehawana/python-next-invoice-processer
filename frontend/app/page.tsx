@@ -1,99 +1,205 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const API_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
   ? "http://localhost:8003"
   : "https://api.bluehawana.com";
 
+type Period = { year: number; month: number };
+
+// Invoices are collected for the PREVIOUS calendar month - worked out from today's date,
+// so the site never needs to be edited or redeployed when a new month starts.
+const previousMonth = (): Period => {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+};
+
+const periodLabel = (p: Period) =>
+  new Date(p.year, p.month - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+const periodQuery = (p: Period) => `year=${p.year}&month=${p.month}`;
+
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
+  const [statusKind, setStatusKind] = useState<"info" | "ok" | "error">("info");
   const [records, setRecords] = useState<any[]>([]);
   const [config, setConfig] = useState<any>({});
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [hasMounted, setHasMounted] = useState(false);
+  const [period, setPeriod] = useState<Period>(previousMonth);
+  const [dragging, setDragging] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Calculate previous month (the month we're collecting invoices for)
-  const getPreviousMonth = () => {
-    // TEMP: Force August 2026 for testing
-    // TODO: Revert to dynamic calculation later
-    return {
-      year: 2026,
-      month: 10,
-      display: 'Oct 2026'
-    };
-    
-    /* Original dynamic code:
-    const now = new Date();
-    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    return {
-      year: lastMonth.getFullYear(),
-      month: lastMonth.getMonth() + 1,
-      display: lastMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-    };
-    */
+  const targetMonth = { ...period, display: periodLabel(period) };
+
+  const say = (msg: string, kind: "info" | "ok" | "error" = "info") => {
+    setStatus(msg);
+    setStatusKind(kind);
   };
 
-  const targetMonth = getPreviousMonth();
+  const summarise = (recs: any[]) => {
+    const hw = recs.reduce((n, r) => n + (r.handwritten_count || 0), 0);
+    const matched = recs.reduce((n, r) => n + (r.matched_count || 0), 0);
+    return { hw, matched };
+  };
 
-  // Moved definition UP before usage to fix ReferenceError
-  const fetchStatus = async () => {
+  // Invoices that matched a handwritten amount = exactly what needs to be printed
+  const matchedFiles: string[] = Array.from(new Set(
+    records.flatMap(r => (r.matches || []).map((m: any) => m.file).filter((f: any) => f && !String(f).startsWith("http")))
+  ));
+
+  const fetchStatus = async (p: Period = period) => {
     try {
-      const res = await fetch(`${API_URL}/reconciliation-status`);
+      const res = await fetch(`${API_URL}/reconciliation-status?${periodQuery(p)}`);
       const data = await res.json();
-      setRecords(data.records);
+      setRecords(data.records || []);
       if (data.config) setConfig(data.config);
-    } catch (err) { }
+      return data;
+    } catch (err) {
+      return null;
+    }
   };
 
-  useEffect(() => {
-    setHasMounted(true);
-    fetchStatus();
-  }, []);
+  const stopPolling = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+  };
 
-  if (!hasMounted) return null;
-
-  const triggerDownload = async () => {
-    setLoading(true);
-    setStatus("Phase 2: Connecting to Stripe and fetching Gmail invoices...");
-    try {
-      const res = await fetch(`${API_URL}/trigger-download?year=${targetMonth.year}&month=${targetMonth.month}`, {
-        method: "POST",
-      });
-      const data = await res.json();
-      setStatus("Digital Sync Started! Invoices will appear in the table as they are found.");
-
-      // Poll periodically for ~45 seconds
-      let pollCount = 0;
-      const interval = setInterval(async () => {
-        pollCount++;
-        await fetchStatus(); // Wait for the fetch to complete
-        if (pollCount > 40) { // Increased to ~2 minutes
-          clearInterval(interval);
-          setStatus("Syncing complete. All available invoices should be linked.");
+  // Follow a running sync until the backend says it is finished
+  const followSync = (p: Period) => {
+    stopPolling();
+    let ticks = 0;
+    pollRef.current = setInterval(async () => {
+      ticks++;
+      const data = await fetchStatus(p);
+      if (data?.syncing) {
+        say(data.sync_message || "Collecting invoices...");
+      }
+      if ((data && !data.syncing) || ticks > 200) {
+        stopPolling();
+        setLoading(false);
+        const { hw, matched } = summarise(data?.records || []);
+        if (hw === 0) {
+          say(`Invoices for ${periodLabel(p)} collected. Drop the photo of the handwritten sheet to match them.`, "ok");
+        } else if (matched === hw) {
+          say(`Done: all ${hw} handwritten amounts matched an invoice. Click "Print all matched".`, "ok");
+        } else {
+          say(`Done: ${matched} of ${hw} handwritten amounts matched. Check the rows marked "no invoice found".`, "info");
         }
-      }, 3000);
+      }
+    }, 3000);
+  };
+
+  const startSync = async (p: Period = period) => {
+    setLoading(true);
+    say(`Collecting ${periodLabel(p)} invoices from Stripe and email (incl. last two weeks of the previous month)...`);
+    try {
+      await fetch(`${API_URL}/trigger-download?${periodQuery(p)}`, { method: "POST" });
+      followSync(p);
     } catch (err) {
-      setStatus("Error: Could not sync invoices.");
-    } finally {
+      say("Error: Could not start the invoice sync. Is the API online?", "error");
       setLoading(false);
     }
   };
 
-  const handlePrintSelected = async () => {
-    if (selectedFiles.length === 0) return;
+  useEffect(() => {
+    setHasMounted(true);
+    (async () => {
+      const data = await fetchStatus(period);
+      if (data?.syncing) {
+        setLoading(true);
+        followSync(period);
+      }
+    })();
+    return stopPolling;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!hasMounted) return null;
+
+  const changePeriod = async (value: string) => {
+    const [y, m] = value.split("-").map(Number);
+    if (!y || !m) return;
+    const p = { year: y, month: m };
+    setPeriod(p);
+    setSelectedFiles([]);
+    say(`Loading ${periodLabel(p)}...`);
+    const data = await fetchStatus(p);
+    say(data ? `Showing ${periodLabel(p)}.` : "Error: API not reachable.", data ? "info" : "error");
+  };
+
+  const triggerDownload = () => startSync(period);
+
+  // The whole job from one photo: read the sheet -> collect the month's invoices -> match
+  const processHandwritten = async (file: File) => {
+    if (!file.type.startsWith("image/") && !/\.(heic|heif|jpe?g|png|webp)$/i.test(file.name)) {
+      say("Please drop a photo (JPG, PNG or HEIC) of the handwritten sheet.", "error");
+      return;
+    }
+    const p = period;
+    setLoading(true);
+    say(`Step 1/3: AI is reading the handwriting in ${file.name} for ${periodLabel(p)}...`);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
     try {
-      await fetch(`${API_URL}/print-batch`, {
+      const res = await fetch(`${API_URL}/upload-paper?${periodQuery(p)}`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok || data.ocr_ok === false) {
+        say(`Error: ${data.message || data.detail || "The photo could not be read."}`, "error");
+        setLoading(false);
+        return;
+      }
+      setRecords(data.records || data.results || []);
+      const { hw } = summarise(data.records || []);
+      say(`Step 2/3: Read ${hw} amounts. Collecting the ${periodLabel(p)} invoices...`);
+      // Step 2+3 run on the server; we just follow along
+      await fetch(`${API_URL}/trigger-download?${periodQuery(p)}`, { method: "POST" });
+      followSync(p);
+    } catch (err) {
+      say("Error: Failed to process the photo. Is the API online?", "error");
+      setLoading(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";  // allow dropping the same photo again
+    if (file) processHandwritten(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && !loading) processHandwritten(file);
+  };
+
+  // One PDF with everything -> one print dialog on THIS computer's printer
+  const openMergedPdf = async (files: string[]) => {
+    if (files.length === 0) return;
+    const tab = window.open("", "_blank");
+    try {
+      const res = await fetch(`${API_URL}/merged-pdf`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(selectedFiles),
+        body: JSON.stringify({ file_paths: files }),
       });
-      alert(`Sent ${selectedFiles.length} files to printer!`);
-      setSelectedFiles([]);
+      if (!res.ok) throw new Error("merge failed");
+      const url = URL.createObjectURL(await res.blob());
+      if (tab) tab.location.href = url; else window.location.href = url;
     } catch (err) {
-      alert("Print failed.");
+      if (tab) tab.close();
+      say("Error: Could not build the print file.", "error");
     }
+  };
+
+  const handlePrintSelected = async () => {
+    await openMergedPdf(selectedFiles);
   };
 
   const toggleFile = (filePath: string) => {
@@ -102,17 +208,6 @@ export default function Home() {
         ? prev.filter(f => f !== filePath)
         : [...prev, filePath]
     );
-  };
-
-  const handlePrint = async (filePath: string) => {
-    try {
-      await fetch(`${API_URL}/print-file?file_path=${encodeURIComponent(filePath)}`, {
-        method: "POST",
-      });
-      alert("Print job sent!");
-    } catch (err) {
-      alert("Failed to print.");
-    }
   };
 
   const togglePartnerFiles = (files: string[]) => {
@@ -126,42 +221,7 @@ export default function Home() {
   };
 
   const handlePrintBatch = async (files: string[]) => {
-    try {
-      await fetch(`${API_URL}/print-batch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(files),
-      });
-      alert(`Sent ${files.length} files to printer!`);
-    } catch (err) {
-      alert("Print failed.");
-    }
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0]) return;
-
-    setLoading(true);
-    const fileName = e.target.files[0].name;
-    setStatus(`Phase 1: Recognizing handwriting from ${fileName}...`);
-
-    const formData = new FormData();
-    formData.append("file", e.target.files[0]);
-
-    try {
-      const res = await fetch(`${API_URL}/upload-paper`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-
-      setRecords(data.results);
-      setStatus("OCR Finished! Please verify results in the table. When ready, click 'Sync' to fetch digital copies.");
-    } catch (err) {
-      setStatus("Error: Failed to process paper.");
-    } finally {
-      setLoading(false);
-    }
+    await openMergedPdf(files);
   };
 
   const handleSEBUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -182,17 +242,17 @@ export default function Home() {
       
       if (!res.ok) {
         const error = await res.json();
-        setStatus(`Error: ${error.detail || 'Failed to process SEB file'}`);
+        say(`Error: ${error.detail || 'Failed to process SEB file'}`, "error");
         return;
       }
 
       const data = await res.json();
-      setStatus(`✅ Bankgiro report generated! Found ${data.transactions_count} transaction days. Report ready for printing.`);
+      say(`Bankgiro report generated! Found ${data.transactions_count} transaction days. Report ready for printing.`, "ok");
       
       // Refresh reconciliation status to show the new Bankgiro report
       await fetchStatus();
     } catch (err) {
-      setStatus("Error: Failed to process SEB transaction file.");
+      say("Error: Failed to process SEB transaction file.", "error");
     } finally {
       setLoading(false);
     }
@@ -258,12 +318,18 @@ export default function Home() {
             </div>
             <h2 className="text-xl font-semibold">Invoice Collection</h2>
           </div>
-          <p className="text-slate-400 mb-6 text-sm">Automatically fetch invoices from Stripe, Wolt, Uber Eats, and Foodora via API and email.</p>
+          <p className="text-slate-400 mb-6 text-sm">Fetches Stripe payouts plus Wolt, Uber Eats and Foodora invoices from email, including the last two weeks of the previous month. Starts automatically after you drop the handwritten sheet.</p>
 
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-700">
               <span className="font-medium text-slate-300">Target Month</span>
-              <span className="text-blue-400 font-semibold">{targetMonth.display}</span>
+              <input
+                type="month"
+                value={`${period.year}-${String(period.month).padStart(2, "0")}`}
+                onChange={(e) => changePeriod(e.target.value)}
+                disabled={loading}
+                className="bg-slate-800 border border-slate-600 rounded-md px-3 py-1.5 text-blue-400 font-semibold [color-scheme:dark]"
+              />
             </div>
 
             <button
@@ -296,7 +362,10 @@ export default function Home() {
           </div>
 
           {status && (
-            <div className="mt-4 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 text-sm flex items-start gap-3">
+            <div className={`mt-4 p-4 rounded-lg border text-sm flex items-start gap-3 ${
+              statusKind === "error" ? "bg-red-500/10 border-red-500/40 text-red-300"
+              : statusKind === "ok" ? "bg-green-500/10 border-green-500/40 text-green-300"
+              : "bg-blue-500/10 border-blue-500/30 text-blue-300"}`}>
               <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -315,17 +384,24 @@ export default function Home() {
             </div>
             <h2 className="text-xl font-semibold">Handwritten Records</h2>
           </div>
-          <p className="text-slate-400 mb-6 text-sm">Upload a photo of handwritten income records for OCR processing and reconciliation.</p>
+          <p className="text-slate-400 mb-6 text-sm">Drop one photo of the handwritten sheet. AI reads the amounts, the {targetMonth.display} invoices are collected and matched automatically, then print everything in one go.</p>
 
-          <label className="border-2 border-dashed border-slate-600 hover:border-cyan-500 rounded-xl p-8 flex flex-col items-center justify-center gap-4 hover:bg-slate-800/30 transition-all cursor-pointer group relative">
-            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} accept="image/*" />
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+            className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-4 transition-all cursor-pointer group relative ${
+              dragging ? "border-cyan-400 bg-cyan-500/10" : "border-slate-600 hover:border-cyan-500 hover:bg-slate-800/30"
+            } ${loading ? "opacity-60 pointer-events-none" : ""}`}
+          >
+            <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*,.heic,.heif" disabled={loading} />
             <div className="w-16 h-16 rounded-full bg-slate-700/50 group-hover:bg-cyan-500/20 flex items-center justify-center group-hover:scale-110 transition-all">
               <svg className="w-8 h-8 text-slate-400 group-hover:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
             </div>
             <div className="text-center">
-              <span className="text-sm font-medium text-slate-300 block mb-1">Click to upload or drag & drop</span>
+              <span className="text-sm font-medium text-slate-300 block mb-1">{loading ? "Working..." : `Drag & drop the ${targetMonth.display} sheet here, or click`}</span>
               <span className="text-xs text-slate-500">PNG, JPG, HEIC up to 10MB</span>
             </div>
           </label>
@@ -399,8 +475,16 @@ export default function Home() {
               <div className="flex items-center gap-3 mb-4">
                 <h3 className="text-lg font-semibold text-cyan-400">Reconciliation Results</h3>
                 <span className="px-3 py-1 bg-cyan-500/20 text-cyan-300 rounded-full text-xs font-medium">
-                  {records.length} Partners
+                  {targetMonth.display} · {records.length} Partners
                 </span>
+                {matchedFiles.length > 0 && (
+                  <button
+                    onClick={() => openMergedPdf(matchedFiles)}
+                    className="ml-auto bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-lg shadow-green-500/20"
+                  >
+                    🖨 Print all matched ({matchedFiles.length})
+                  </button>
+                )}
               </div>
               <div className="overflow-x-auto rounded-lg border border-slate-700">
                 <table className="w-full text-left text-sm">
@@ -465,7 +549,10 @@ export default function Home() {
                                   <span className="text-slate-300 font-mono">{Number(m.hw).toLocaleString('sv-SE', {minimumFractionDigits: 2})} kr</span>
                                   <span className="text-slate-500">→</span>
                                   <span className="text-green-400 font-mono">{m.pdf != null ? Number(m.pdf).toLocaleString('sv-SE', {minimumFractionDigits: 2}) + ' kr' : 'linked'}</span>
-                                  {m.diff != null && m.diff > 0 && (
+                                  {m.corrected && (
+                                    <span className="text-amber-400 text-[10px] border border-amber-500/30 bg-amber-500/10 px-1 rounded" title="The handwritten amount differed by one digit from the real payout">digit corrected</span>
+                                  )}
+                                  {m.diff != null && m.diff > 0.005 && !m.corrected && (
                                     <span className="text-amber-500/70 text-[10px]">(Δ{Number(m.diff).toFixed(2)})</span>
                                   )}
                                   {m.file && (
@@ -494,7 +581,7 @@ export default function Home() {
                             </span>
                           )}
                           {(!record.files || record.files.length === 0) && record.amounts?.length > 0 && (
-                            <span className="text-amber-500/70 italic">No invoice found in email</span>
+                            <span className="text-amber-500/70 italic">No invoices collected yet</span>
                           )}
                         </td>
                         <td className="py-4 px-4 text-right font-bold text-cyan-400">

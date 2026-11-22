@@ -1,6 +1,7 @@
 from typing import List
 import imaplib
 import email
+import email.utils
 import os
 from stripe_module import settings
 from fpdf import FPDF
@@ -236,6 +237,39 @@ def get_html_body(msg):
         html = html.strip()
     return html
 
+def payment_window(year: int, month: int):
+    """[start, end) dates of the invoices belonging to a payment month:
+    15th of the previous month (its last two weeks) up to the 1st of the next month."""
+    import datetime
+    prev_year, prev_month = (year, month - 1) if month > 1 else (year - 1, 12)
+    start = datetime.date(prev_year, prev_month, 15)
+    end = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
+    return start, end
+
+
+def _received_index_path() -> str:
+    return os.path.join(settings.INVOICE_STORAGE_PATH, "_received_index.json")
+
+
+def load_received_index() -> dict:
+    """filename -> ISO date the invoice email was received."""
+    import json
+    try:
+        with open(_received_index_path()) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_received_index(index: dict):
+    import json
+    try:
+        with open(_received_index_path(), "w") as f:
+            json.dump(index, f, indent=1, sort_keys=True)
+    except Exception as e:
+        print(f"Could not save received-date index: {e}")
+
+
 def fetch_email_invoices(year: int, month: int) -> List[str]:
     """
     Connects to Gmail and downloads Wolt, Foodora, and Uber Eats payout reports/invoices.
@@ -255,20 +289,17 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
 
         import datetime
         
-        # FIXED: Use strict month boundaries for email RECEIVED date (when money arrived)
-        # This matches accounting principle: income recorded when payment hits bank account
-        # NOT when work was performed (invoice period dates in subject lines)
-        month_start = datetime.date(year, month, 1)
-        if month == 12:
-            month_end = datetime.date(year + 1, 1, 1)
-        else:
-            month_end = datetime.date(year, month + 1, 1)
+        # Payment-period rule: Wolt / Foodora / Uber pay ~2 weeks late, so the invoices that belong
+        # to a payment month are the ones RECEIVED from the last two weeks of the previous month
+        # up to the end of the target month.
+        month_start, month_end = payment_window(year, month)
 
         since_str  = month_start.strftime("%d-%b-%Y")
         before_str = month_end.strftime("%d-%b-%Y")
 
         date_criteria = f'(SINCE "{since_str}" BEFORE "{before_str}")'
-        print(f"[FIXED] Fetching emails RECEIVED between {since_str} and {before_str} (payout month: {year}-{month:02d})")
+        print(f"Fetching emails RECEIVED between {since_str} and {before_str} (payout month: {year}-{month:02d})")
+        received_index = load_received_index()
 
         processed_ids = set()
         # FIXED: Search by partner and email received date only
@@ -291,6 +322,10 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
                     raw_email = data[0][1]
                     msg = email.message_from_bytes(raw_email)
                     subject = msg.get("Subject", "").lower()
+                    try:
+                        received_date = email.utils.parsedate_to_datetime(msg.get("Date")).date().isoformat()
+                    except Exception:
+                        received_date = None
                     
                     # Fine-tune tag based on subject
                     partner_tag = default_tag
@@ -337,6 +372,8 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
                             with open(filepath, "wb") as f:
                                 f.write(part.get_payload(decode=True))
                             
+                            if received_date:
+                                received_index[safe_filename] = received_date
                             print(f"Downloaded attachment from {partner_tag}: {safe_filename}")
                             downloaded_files.append(os.path.abspath(filepath))
                             found_pdf = True
@@ -359,6 +396,8 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
                             safe_filename = f"{partner_tag}_{num.decode()}_email_body.pdf"
                             filepath = os.path.join(settings.INVOICE_STORAGE_PATH, safe_filename)
                             create_email_pdf(subject, body_text, filepath, partner_tag)
+                            if received_date:
+                                received_index[safe_filename] = received_date
                             downloaded_files.append(os.path.abspath(filepath))
                             print(f"Generated PDF from email body: {safe_filename}")
                     elif not found_pdf:
@@ -366,6 +405,7 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
 
         mail.close()
         mail.logout()
+        save_received_index(received_index)
     except Exception as e:
         print(f"Error fetching emails: {e}")
 

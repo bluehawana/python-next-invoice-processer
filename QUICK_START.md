@@ -1,57 +1,26 @@
-# 🚀 QUICK START - PRINT NOVEMBER INVOICES
+# 🚀 QUICK START - MONTHLY INVOICES
 
-## When November 1st Arrives
+No terminal, no commands, no redeploy. The site always works on the **previous calendar month**
+(in November it shows October) and you can pick another month with the month picker.
 
-Open terminal and run:
+## Every month (about 2 minutes)
 
-```bash
-cd /Users/harvad/Projects/python-next-invoice-processer
-./setup_month.sh 2026 11
-```
+1. **Take a photo** of the handwritten sheet
+2. **Open** https://invoices.bluehawana.com
+3. **Drag & drop** the photo onto "Handwritten Records"
+4. Wait while it runs by itself:
+   - AI reads the handwritten amounts
+   - Stripe payouts + Wolt / Foodora / Uber invoices are collected
+     (including the last two weeks of the previous month)
+   - Every handwritten amount is matched to its invoice
+5. **Click "Print all matched"** - one PDF opens, press Cmd+P once
 
-## What Happens Next (Automatic)
+Rows marked "no invoice found" are the only thing left to check by hand.
 
-1. ✅ System updates to November 2026
-2. ✅ Downloads all invoices from Foodora, Uber, Wolt, Stripe
-3. ✅ Builds and deploys frontend
-4. ✅ Deploys backend to VPS
-5. ✅ Opens website in your browser
-6. ⏳ Waits for you...
-
-## What You Do (2 minutes)
-
-1. **Take photo** of your handwritten November amounts with your phone
-2. **Go to** https://invoices.bluehawana.com (already open)
-3. **Click** "Upload Handwritten Record"
-4. **Upload** the photo
-5. **Wait** 10 seconds for OCR to process
-6. **Click** "Print All" or select specific invoices
-
-## Done! 🎉
-
-All November invoices are now:
-- ✅ Downloaded
-- ✅ Matched to handwritten amounts
-- ✅ Ready to print
-- ✅ Accessible from anywhere (no VPN needed)
-
-**Total time: 5 minutes**  
-**Total cost: <$1 in tokens**
-
----
-
-## For December
-
-Same command, just change the month:
+## After changing code
 
 ```bash
-./setup_month.sh 2026 12
-```
-
-## For January 2027
-
-```bash
-./setup_month.sh 2027 1
+./setup_month.sh          # build + deploy frontend and backend
 ```
 
 ---
