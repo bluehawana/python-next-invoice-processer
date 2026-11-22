@@ -220,10 +220,6 @@ export default function Home() {
     }
   };
 
-  const handlePrintBatch = async (files: string[]) => {
-    await openMergedPdf(files);
-  };
-
   const handleSEBUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0]) return;
 
@@ -478,12 +474,14 @@ export default function Home() {
                   {targetMonth.display} · {records.length} Partners
                 </span>
                 {matchedFiles.length > 0 && (
-                  <button
-                    onClick={() => openMergedPdf(matchedFiles)}
+                  <a
+                    href={`${API_URL}/print-pdf?${periodQuery(period)}`}
+                    target="_blank"
+                    rel="noopener"
                     className="ml-auto bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-lg shadow-green-500/20"
                   >
                     🖨 Print all matched ({matchedFiles.length})
-                  </button>
+                  </a>
                 )}
               </div>
               <div className="overflow-x-auto rounded-lg border border-slate-700">
@@ -605,15 +603,17 @@ export default function Home() {
                                   </a>
                                 ))}
                               </div>
-                              <button
-                                onClick={() => handlePrintBatch(record.files)}
+                              <a
+                                href={`${API_URL}/print-pdf?${periodQuery(period)}&partner=${encodeURIComponent(record.partner)}&all=true`}
+                                target="_blank"
+                                rel="noopener"
                                 className="text-sm text-slate-300 hover:text-white font-medium bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-md transition-colors flex items-center gap-2"
                               >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                                 </svg>
                                 Print ({record.files.length})
-                              </button>
+                              </a>
                             </div>
                           )}
                         </td>

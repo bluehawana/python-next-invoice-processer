@@ -493,20 +493,21 @@ async def get_reconciliation_status(year: Optional[int] = None, month: Optional[
 class MergeRequest(BaseModel):
     file_paths: List[str]
 
-@app.post("/merged-pdf")
-def merged_pdf(req: MergeRequest):
-    """
-    One PDF containing all the given invoices, ready for a single Ctrl/Cmd+P in the browser.
-    Wolt/Foodora/Uber invoices contribute their first page only (same rule as server printing).
-    """
+
+def _build_merged_pdf(file_paths: List[str]):
+    """Merge invoices into one PDF and return it as an inline browser response.
+    Wolt/Foodora/Uber invoices contribute their first page only (same rule as server printing)."""
     import tempfile
     from pypdf import PdfReader, PdfWriter
     from fastapi.responses import FileResponse
 
     writer = PdfWriter()
-    added = 0
-    for raw in req.file_paths:
-        name = os.path.basename(raw)
+    added, seen = 0, set()
+    for raw in file_paths:
+        name = os.path.basename(raw or "")
+        if name in seen:
+            continue
+        seen.add(name)
         path = os.path.join(_invoice_dir(), name)
         if not os.path.exists(path):
             path = os.path.join(_manual_dir(), name)
@@ -522,14 +523,44 @@ def merged_pdf(req: MergeRequest):
         except Exception as e:
             print(f"[MERGE] Skipping {name}: {e}")
     if added == 0:
-        raise HTTPException(status_code=404, detail="None of the requested invoices were found")
+        raise HTTPException(status_code=404, detail="No invoices to print yet for this month")
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", prefix="invoices_merged_")
     with open(tmp.name, "wb") as f:
         writer.write(f)
     out_name = f"invoices_{current_period['year']}-{current_period['month']:02d}.pdf"
     return FileResponse(tmp.name, media_type="application/pdf",
-                        headers={"Content-Disposition": f'inline; filename="{out_name}"'})
+                        headers={"Content-Disposition": f'inline; filename="{out_name}"',
+                                 "Cache-Control": "no-store"})
+
+
+@app.post("/merged-pdf")
+def merged_pdf(req: MergeRequest):
+    """One PDF containing the given invoices (used for a hand-picked selection)."""
+    return _build_merged_pdf(req.file_paths)
+
+
+@app.get("/print-pdf")
+async def print_pdf_link(year: Optional[int] = None, month: Optional[int] = None,
+                         partner: Optional[str] = None, all: bool = False):
+    """
+    A plain link that opens ONE PDF ready to print - works in any browser, on any device,
+    without popups: the invoices matched to the handwritten amounts of a month
+    (optionally one partner; all=true includes that partner's unmatched invoices too).
+    """
+    if _valid_period(year, month) and (year, month) != (current_period["year"], current_period["month"]) \
+            and not sync_state["running"]:
+        set_period(year, month)
+        await asyncio.to_thread(reconcile_from_disk)
+
+    files = []
+    for r in reconciliation_results:
+        if partner and r.get("partner", "").lower() != partner.lower():
+            continue
+        files += [m.get("file") for m in r.get("matches", []) if m.get("file")]
+        if all:
+            files += r.get("files", [])
+    return await asyncio.to_thread(_build_merged_pdf, files)
 
 @app.post("/print-file")
 def print_file_endpoint(file_path: str):
