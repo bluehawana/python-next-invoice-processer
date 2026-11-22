@@ -457,21 +457,56 @@ async def upload_paper(file: UploadFile = File(...), year: Optional[int] = None,
         "files_found": files_found,
     })
 
+# Hosts an invoice PDF may be fetched from by link (the Uber Eats Manager statement download)
+INVOICE_LINK_HOSTS = {"tbgs-static.uber.com"}
+
+
+class InvoiceLink(BaseModel):
+    url: str
+
+
+@app.post("/upload-invoice-url")
+async def upload_invoice_url(link: InvoiceLink, year: Optional[int] = None, month: Optional[int] = None):
+    """Add an invoice by pasting its download link (Uber monthly statement link from Uber Eats Manager)."""
+    from urllib.parse import urlparse
+    import requests
+    parsed = urlparse(link.url.strip())
+    if parsed.scheme != "https" or parsed.hostname not in INVOICE_LINK_HOSTS:
+        raise HTTPException(status_code=400, detail="Only Uber statement links (https://tbgs-static.uber.com/...) are accepted")
+
+    def _download() -> bytes:
+        r = requests.get(link.url.strip(), timeout=60, allow_redirects=False)
+        if r.status_code != 200 or not r.content.startswith(b"%PDF"):
+            raise ValueError(f"HTTP {r.status_code}")
+        return r.content
+
+    try:
+        content = await asyncio.to_thread(_download)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not download the statement (the link may have expired): {e}")
+    name = os.path.basename(parsed.path) or "uber_statement.pdf"
+    return await _store_invoice_pdf(content, name, year, month)
+
+
 @app.post("/upload-invoice")
 async def upload_invoice(file: UploadFile = File(...), year: Optional[int] = None, month: Optional[int] = None):
     """
     Add an invoice PDF by hand (e.g. the Uber monthly statement downloaded from the Uber portal,
     which never arrives by email). It is stored for the payment month and matched immediately.
     """
+    return await _store_invoice_pdf(await file.read(), file.filename or "invoice.pdf", year, month)
+
+
+async def _store_invoice_pdf(content: bytes, filename: str, year: Optional[int], month: Optional[int]):
     if not _valid_period(year, month):
         year, month = current_period["year"], current_period["month"]
-    original = os.path.basename(file.filename or "invoice.pdf")
-    if not original.lower().endswith(".pdf"):
+    original = os.path.basename(filename)
+    if not original.lower().endswith(".pdf") or not content.startswith(b"%PDF"):
         raise HTTPException(status_code=400, detail="Only PDF invoices can be added here")
 
     tmp_path = os.path.join(_invoice_dir(), f".incoming_{original}")
     with open(tmp_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(content)
     text = (await asyncio.to_thread(extract_text_from_pdf, tmp_path)).lower()
     lowered = original.lower()
     if "uber" in text or "uber" in lowered:

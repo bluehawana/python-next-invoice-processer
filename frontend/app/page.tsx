@@ -31,6 +31,7 @@ export default function Home() {
   const [hasMounted, setHasMounted] = useState(false);
   const [period, setPeriod] = useState<Period>(previousMonth);
   const [dragging, setDragging] = useState(false);
+  const [invoiceLink, setInvoiceLink] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const targetMonth = { ...period, display: periodLabel(period) };
@@ -153,6 +154,34 @@ export default function Home() {
       say(`${data.message}. ${matched} of ${hw} handwritten amounts now match.`, matched === hw && hw > 0 ? "ok" : "info");
     } catch (err) {
       say("Error: Failed to add the PDF. Is the API online?", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Paste the statement link copied from Uber Eats Manager instead of downloading the PDF first
+  const addInvoiceLink = async (url: string) => {
+    if (!url.trim()) return;
+    const p = period;
+    setLoading(true);
+    say(`Fetching the Uber statement for ${periodLabel(p)}...`);
+    try {
+      const res = await fetch(`${API_URL}/upload-invoice-url?${periodQuery(p)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        say(`Error: ${data.detail || "The link could not be used."}`, "error");
+        return;
+      }
+      setRecords(data.records || []);
+      setInvoiceLink("");
+      const { hw, matched } = summarise(data.records || []);
+      say(`${data.message}. ${matched} of ${hw} handwritten amounts now match.`, matched === hw && hw > 0 ? "ok" : "info");
+    } catch (err) {
+      say("Error: Failed to fetch the link. Is the API online?", "error");
     } finally {
       setLoading(false);
     }
@@ -428,6 +457,24 @@ export default function Home() {
               <span className="text-xs text-slate-500">Photo of the sheet (PNG, JPG, HEIC), or a missing invoice PDF such as the Uber monthly statement</span>
             </div>
           </label>
+
+          <div className="mt-4 flex gap-2">
+            <input
+              type="url"
+              value={invoiceLink}
+              onChange={(e) => setInvoiceLink(e.target.value)}
+              placeholder="...or paste the Uber monthly statement link"
+              disabled={loading}
+              className="flex-1 min-w-0 bg-slate-900/50 border border-slate-600 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-500"
+            />
+            <button
+              onClick={() => addInvoiceLink(invoiceLink)}
+              disabled={loading || !invoiceLink.trim()}
+              className="px-4 py-2 rounded-md text-sm font-semibold bg-slate-700 hover:bg-slate-600 disabled:opacity-40 transition-colors"
+            >
+              Add
+            </button>
+          </div>
         </section>
 
         {/* SEB Bankgiro Upload Card */}
