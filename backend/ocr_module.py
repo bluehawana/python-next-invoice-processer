@@ -449,7 +449,9 @@ def reconcile_invoices(
                     if idx in used_stripe:
                         continue
                     diff = abs(hw_amt - payout["amount"])
-                    if diff < best_diff:
+                    # "<=": payouts are sorted by date, so when two payouts have the same amount
+                    # the LATER one wins (the earlier one belongs to the previous month's sheet)
+                    if diff < best_diff or (diff == best_diff and best_idx is not None):
                         best_idx, best_diff = idx, diff
                 if best_idx is not None and best_diff <= 5.0:
                     _stripe_match(i, hw_amt, best_idx)
@@ -473,15 +475,15 @@ def reconcile_invoices(
                     unmatched_hw.append(hw_amt)
 
             # Attach any Stripe PDFs too
-            # Matched payouts first, then the rest of THIS month's payouts (not every Stripe PDF on disk)
-            relevant_files = [m["file"] for m in matches if m.get("file") and os.path.exists(m["file"])]
-            if stripe_payouts:
-                for payout in stripe_payouts:
-                    f = stripe_pdf_map.get(payout.get("id", ""))
-                    if f and f not in relevant_files:
-                        relevant_files.append(f)
-            else:
-                relevant_files = list(file_map.get("stripe", []))
+            # Only the payouts written on the sheet are listed/printed. The API also returns the
+            # payouts of the last two weeks of the previous month; those are kept aside.
+            relevant_files = []
+            for m in matches:
+                f = m.get("file")
+                if f and os.path.exists(f) and f not in relevant_files:
+                    relevant_files.append(f)
+            other_files = [f for f in (stripe_pdf_map.get(p.get("id", "")) for p in stripe_payouts)
+                           if f and f not in relevant_files]
             for f in relevant_files:
                 matched_pdf_paths.add(f)
 
@@ -517,11 +519,15 @@ def reconcile_invoices(
                         matched_pdf_paths.add(best_path)
                         near_misses.append({"hw": hw_amt, "pdf": best_pdf_amt, "diff": best_diff, "file": best_path})
 
-            relevant_files = [m["file"] for m in matches if m.get("file")]
-            # Also add ALL files for this partner so user can see them
+            # Only invoices that matched a handwritten amount are listed/printed
+            relevant_files = []
+            for m in matches:
+                if m.get("file") and m["file"] not in relevant_files:
+                    relevant_files.append(m["file"])
+            other_files = []
             for fpath, _ in avail:
-                if fpath not in relevant_files:
-                    relevant_files.append(fpath)
+                if fpath not in relevant_files and fpath not in other_files:
+                    other_files.append(fpath)
 
         fully_reconciled = (len(matches) == len(hw_amounts) and len(hw_amounts) > 0)
 
@@ -536,6 +542,7 @@ def reconcile_invoices(
             "unmatched": unmatched_hw,
             "near_misses": near_misses,
             "files": relevant_files,
+            "other_files": other_files,   # collected for the period but not on the sheet
         })
 
     # ── Add files found in email that had no handwritten entry ────────────

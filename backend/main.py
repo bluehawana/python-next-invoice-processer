@@ -643,8 +643,9 @@ async def print_pdf_link(year: Optional[int] = None, month: Optional[int] = None
         if partner and r.get("partner", "").lower() != partner.lower():
             continue
         files += [m.get("file") for m in r.get("matches", []) if m.get("file")]
+        files += r.get("files", [])
         if all:
-            files += r.get("files", [])
+            files += r.get("other_files", [])
     return await asyncio.to_thread(_build_merged_pdf, files)
 
 @app.post("/print-file")

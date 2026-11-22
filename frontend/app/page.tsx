@@ -652,6 +652,11 @@ export default function Home() {
                               ))}
                             </div>
                           )}
+                          {record.other_files && record.other_files.length > 0 && (
+                            <div className="text-slate-600 text-[10px] mt-1">
+                              {record.other_files.length} other invoice{record.other_files.length > 1 ? 's' : ''} from the period not on the sheet (hidden, not printed)
+                            </div>
+                          )}
                           {/* Files with no handwritten record */}
                           {(!record.matches || record.matches.length === 0) && (!record.unmatched || record.unmatched.length === 0) && record.files && record.files.length > 0 && (
                             <span className="text-slate-500 italic">
@@ -684,7 +689,7 @@ export default function Home() {
                                 ))}
                               </div>
                               <a
-                                href={`${API_URL}/print-pdf?${periodQuery(period)}&partner=${encodeURIComponent(record.partner)}&all=true`}
+                                href={`${API_URL}/print-pdf?${periodQuery(period)}&partner=${encodeURIComponent(record.partner)}`}
                                 target="_blank"
                                 rel="noopener"
                                 className="text-sm text-slate-300 hover:text-white font-medium bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-md transition-colors flex items-center gap-2"
