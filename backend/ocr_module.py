@@ -117,6 +117,34 @@ def extract_payout_amount_from_pdf(pdf_path: str, partner: str) -> Optional[floa
     return None
 
 
+def extract_payout_amounts_from_pdf(pdf_path: str, partner: str) -> List[float]:
+    """
+    All payout amounts found in an invoice PDF.
+    Usually one, but the Uber monthly statement ("Månadsutdrag") lists every weekly
+    payout of the month on its own page ("Nettoutbetalning  2 178,80 kr").
+    """
+    if "uber" in partner.lower():
+        text = extract_text_from_pdf(pdf_path)
+        payouts = []
+        for raw in re.findall(r'Nettoutbetalning\s+([\d\s\xa0]+,\d{2})\s*kr', text):
+            amt = _parse_swedish_number(raw)
+            if amt is not None:
+                payouts.append(amt)
+        if len(payouts) > 1:
+            print(f"[PDF] {os.path.basename(pdf_path)}: Uber statement with {len(payouts)} payouts {payouts}")
+            return payouts
+    single = extract_payout_amount_from_pdf(pdf_path, partner)
+    return [single] if single is not None else []
+
+
+def is_uber_statement(pdf_path: str) -> bool:
+    """True for the multi-payout Uber monthly statement."""
+    try:
+        return len(extract_payout_amounts_from_pdf(pdf_path, "uber")) > 1
+    except Exception:
+        return False
+
+
 def _parse_swedish_number(s: str) -> Optional[float]:
     """Parse Swedish number format: '1 234,56' or '1234,56' → 1234.56"""
     try:
@@ -308,6 +336,9 @@ def process_handwritten_image(image_path: str) -> Dict[str, List[float]]:
 # 3.  Reconciliation – match handwritten amounts against PDFs
 # ─────────────────────────────────────────────────────────────
 
+MATCH_TOLERANCE_SEK = 5.0
+
+
 def _digit_distance(a: str, b: str) -> int:
     """Edit distance between two amount strings (number of digits inserted/removed/changed)."""
     prev = list(range(len(b) + 1))
@@ -370,9 +401,12 @@ def reconcile_invoices(
     for partner_key, files in file_map.items():
         pdf_amounts[partner_key] = []
         for fpath in files:
-            amt = extract_payout_amount_from_pdf(fpath, partner_key)
-            pdf_amounts[partner_key].append((fpath, amt))
-            print(f"[RECONCILE] {os.path.basename(fpath)} → extracted amount: {amt}")
+            amts = extract_payout_amounts_from_pdf(fpath, partner_key)
+            if not amts:
+                pdf_amounts[partner_key].append((fpath, None))
+            for amt in amts:  # one entry per payout inside the PDF
+                pdf_amounts[partner_key].append((fpath, amt))
+            print(f"[RECONCILE] {os.path.basename(fpath)} → extracted amounts: {amts}")
 
     # ── Stripe: match against API payout amounts ─────────────────────────
 
@@ -394,6 +428,7 @@ def reconcile_invoices(
         partner_total = sum(hw_amounts)
         matches: List[Dict] = []
         unmatched_hw: List[float] = []
+        near_misses: List[Dict] = []   # closest invoice for each unmatched amount (shown, never printed)
 
         if partner_key == "stripe":
             # Pass 1: each handwritten amount against the real Stripe payouts (closest, within 5 SEK)
@@ -470,15 +505,17 @@ def reconcile_invoices(
                         best_pdf_amt = pdf_amt
                         best_idx = idx
 
-                if best_path and best_diff <= 50.0:  # wider tolerance for Foodora/Wolt weekly
+                # Tight tolerance: a "match" must be the same payout, not merely a similar amount.
+                # (50 SEK used to hide wrong invoices: 1817.75 was "matched" to 1840.50.)
+                if best_path and best_diff <= MATCH_TOLERANCE_SEK:
                     used_pdfs.add(best_idx)
                     matched_pdf_paths.add(best_path)
                     matches.append({"hw": hw_amt, "pdf": best_pdf_amt, "diff": best_diff, "file": best_path})
                 else:
                     unmatched_hw.append(hw_amt)
-                    # Still attach the closest file (so it's visible)
                     if best_path:
                         matched_pdf_paths.add(best_path)
+                        near_misses.append({"hw": hw_amt, "pdf": best_pdf_amt, "diff": best_diff, "file": best_path})
 
             relevant_files = [m["file"] for m in matches if m.get("file")]
             # Also add ALL files for this partner so user can see them
@@ -497,6 +534,7 @@ def reconcile_invoices(
             "amounts": hw_amounts,
             "matches": matches,
             "unmatched": unmatched_hw,
+            "near_misses": near_misses,
             "files": relevant_files,
         })
 

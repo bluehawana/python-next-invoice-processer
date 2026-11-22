@@ -6,7 +6,8 @@ from typing import List, Dict, Optional
 import os
 import shutil
 from stripe_module import download_stripe_payouts, generate_payout_reports, settings
-from ocr_module import process_handwritten_image, reconcile_invoices, normalise_handwritten
+from ocr_module import (process_handwritten_image, reconcile_invoices, normalise_handwritten,
+                        extract_text_from_pdf, is_uber_statement)
 from email_module import fetch_email_invoices, payment_window, load_received_index
 from print_module import batch_print_invoices, print_pdf
 from bankgiro_module import fetch_bankgiro_data, generate_bankgiro_report
@@ -456,6 +457,49 @@ async def upload_paper(file: UploadFile = File(...), year: Optional[int] = None,
         "files_found": files_found,
     })
 
+@app.post("/upload-invoice")
+async def upload_invoice(file: UploadFile = File(...), year: Optional[int] = None, month: Optional[int] = None):
+    """
+    Add an invoice PDF by hand (e.g. the Uber monthly statement downloaded from the Uber portal,
+    which never arrives by email). It is stored for the payment month and matched immediately.
+    """
+    if not _valid_period(year, month):
+        year, month = current_period["year"], current_period["month"]
+    original = os.path.basename(file.filename or "invoice.pdf")
+    if not original.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF invoices can be added here")
+
+    tmp_path = os.path.join(_invoice_dir(), f".incoming_{original}")
+    with open(tmp_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    text = (await asyncio.to_thread(extract_text_from_pdf, tmp_path)).lower()
+    lowered = original.lower()
+    if "uber" in text or "uber" in lowered:
+        tag = "ubereats"
+    elif "wolt" in text or "wolt" in lowered:
+        tag = "wolt"
+    elif "foodora" in text or "delivery hero" in text or "foodora" in lowered:
+        tag = "foodora"
+    else:
+        os.remove(tmp_path)
+        raise HTTPException(status_code=400, detail="Could not tell which partner this invoice is from (Uber, Wolt or Foodora)")
+
+    import re
+    safe = re.sub(r'[^A-Za-z0-9._ -]', '_', original)
+    final_name = f"{tag}_{MONTH_NAMES[month - 1]}{year}_uploaded_{safe}"
+    final_path = os.path.join(_invoice_dir(), final_name)
+    os.replace(tmp_path, final_path)
+    print(f"[UPLOAD-INVOICE] Stored {final_name}")
+
+    set_period(year, month)
+    files_found = await asyncio.to_thread(reconcile_from_disk)
+    return _status_payload({
+        "ocr_ok": True,
+        "message": f"Added {tag} invoice for {year}-{month:02d}",
+        "stored_as": final_name,
+        "files_found": files_found,
+    })
+
 class ManualHandwrittenInput(BaseModel):
     """Manual input of handwritten amounts when OCR is not available."""
     records: Dict[str, List[float]]
@@ -516,7 +560,13 @@ def _build_merged_pdf(file_paths: List[str]):
         try:
             reader = PdfReader(path)
             first_page_only = any(p in name.lower() for p in ["wolt", "foodora", "uber", "eats"])
-            pages = reader.pages[:1] if first_page_only else reader.pages
+            if "uber" in name.lower() and is_uber_statement(path):
+                # Uber monthly statement: overview + one page per payout, without the glossary appendix
+                pages = [pg for pg in reader.pages if "Bilaga" not in (pg.extract_text() or "")[:200]]
+            elif first_page_only:
+                pages = reader.pages[:1]
+            else:
+                pages = reader.pages
             for page in pages:
                 writer.add_page(page)
             added += 1

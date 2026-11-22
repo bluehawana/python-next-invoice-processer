@@ -134,9 +134,36 @@ export default function Home() {
   const triggerDownload = () => startSync(period);
 
   // The whole job from one photo: read the sheet -> collect the month's invoices -> match
+  // A PDF dropped here is an invoice to add (e.g. the Uber monthly statement from the Uber portal)
+  const addInvoicePdf = async (file: File) => {
+    const p = period;
+    setLoading(true);
+    say(`Adding ${file.name} to the ${periodLabel(p)} invoices...`);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch(`${API_URL}/upload-invoice?${periodQuery(p)}`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        say(`Error: ${data.detail || "The PDF could not be added."}`, "error");
+        return;
+      }
+      setRecords(data.records || []);
+      const { hw, matched } = summarise(data.records || []);
+      say(`${data.message}. ${matched} of ${hw} handwritten amounts now match.`, matched === hw && hw > 0 ? "ok" : "info");
+    } catch (err) {
+      say("Error: Failed to add the PDF. Is the API online?", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const processHandwritten = async (file: File) => {
+    if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+      return addInvoicePdf(file);
+    }
     if (!file.type.startsWith("image/") && !/\.(heic|heif|jpe?g|png|webp)$/i.test(file.name)) {
-      say("Please drop a photo (JPG, PNG or HEIC) of the handwritten sheet.", "error");
+      say("Please drop a photo of the handwritten sheet (JPG, PNG, HEIC) or an invoice PDF.", "error");
       return;
     }
     const p = period;
@@ -390,7 +417,7 @@ export default function Home() {
               dragging ? "border-cyan-400 bg-cyan-500/10" : "border-slate-600 hover:border-cyan-500 hover:bg-slate-800/30"
             } ${loading ? "opacity-60 pointer-events-none" : ""}`}
           >
-            <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*,.heic,.heif" disabled={loading} />
+            <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*,.heic,.heif,.pdf,application/pdf" disabled={loading} />
             <div className="w-16 h-16 rounded-full bg-slate-700/50 group-hover:bg-cyan-500/20 flex items-center justify-center group-hover:scale-110 transition-all">
               <svg className="w-8 h-8 text-slate-400 group-hover:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -398,7 +425,7 @@ export default function Home() {
             </div>
             <div className="text-center">
               <span className="text-sm font-medium text-slate-300 block mb-1">{loading ? "Working..." : `Drag & drop the ${targetMonth.display} sheet here, or click`}</span>
-              <span className="text-xs text-slate-500">PNG, JPG, HEIC up to 10MB</span>
+              <span className="text-xs text-slate-500">Photo of the sheet (PNG, JPG, HEIC), or a missing invoice PDF such as the Uber monthly statement</span>
             </div>
           </label>
         </section>
@@ -568,6 +595,12 @@ export default function Home() {
                                 <div key={i} className="flex items-center gap-2">
                                   <span className="text-slate-300 font-mono">{Number(amt).toLocaleString('sv-SE', {minimumFractionDigits: 2})} kr</span>
                                   <span className="text-red-400 text-[10px] border border-red-500/30 bg-red-500/10 px-1 rounded">no invoice found</span>
+                                  {(() => {
+                                    const near = (record.near_misses || []).find((n: any) => n.hw === amt);
+                                    return near && near.pdf != null ? (
+                                      <span className="text-slate-500 text-[10px]">closest invoice: {Number(near.pdf).toLocaleString('sv-SE', {minimumFractionDigits: 2})} kr</span>
+                                    ) : null;
+                                  })()}
                                 </div>
                               ))}
                             </div>
