@@ -108,12 +108,8 @@ def _filter_month_files(files: list, year: int, month: int) -> list:
             keep = in_window(received_index[base])
 
         # 2a. Manual invoices named with a month (e.g. ubereats_oct2026_week3_...):
-        #     the target month, plus the last two weeks (week 3+) of the previous month
         elif month_tag in name:
             keep = True
-        elif prev_tag in name:
-            wk = re.search(r'week(\d+)', name)
-            keep = (not wk) or int(wk.group(1)) >= 3
 
         # 2b. Wolt: semi-monthly period dates in the file name
         elif "wolt" in name:
@@ -164,6 +160,8 @@ def _filter_month_files(files: list, year: int, month: int) -> list:
             deduped.append(f)
         elif base in received_index and os.path.basename(deduped[by_identity[identity]]) not in received_index:
             deduped[by_identity[identity]] = f
+    # Official statements first, so equal amounts match the statement rather than a weekly summary
+    deduped.sort(key=lambda f: 0 if "_statement" in os.path.basename(f).lower() else 1)
     return deduped
 
 def _handwritten_file(year: int, month: int) -> str:
@@ -283,6 +281,37 @@ async def startup_auto_reconcile():
         await asyncio.to_thread(reconcile_from_disk)
     except Exception as e:
         print(f"[STARTUP] Auto-reconcile failed: {e}")
+
+async def daily_auto_sync():
+    """
+    Keeps the invoices collected without anyone doing anything: every night the server downloads
+    the invoices of the month being worked on (the previous calendar month, rolling over by itself
+    on the 1st) and re-matches them. The only manual step left is dropping the photo.
+    """
+    import datetime
+    while True:
+        now = datetime.datetime.now()
+        next_run = now.replace(hour=3, minute=30, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += datetime.timedelta(days=1)
+        await asyncio.sleep((next_run - now).total_seconds())
+        try:
+            year, month = default_period()
+            if not sync_state["running"]:
+                print(f"[AUTO-SYNC] Nightly sync for {year}-{month:02d}")
+                set_period(year, month)
+                sync_state["running"] = True
+                sync_state["message"] = "Nightly sync..."
+                await run_unified_workflow(year, month)
+        except Exception as e:
+            print(f"[AUTO-SYNC] failed: {e}")
+            sync_state["running"] = False
+
+
+@app.on_event("startup")
+async def start_daily_auto_sync():
+    asyncio.create_task(daily_auto_sync())
+
 
 # --- Background Workflows ---
 async def run_unified_workflow(year: int, month: int):

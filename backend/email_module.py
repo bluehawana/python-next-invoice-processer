@@ -2,6 +2,7 @@ from typing import List
 import imaplib
 import email
 import email.utils
+import email.header
 import os
 from stripe_module import settings
 from fpdf import FPDF
@@ -270,6 +271,95 @@ def save_received_index(index: dict):
         print(f"Could not save received-date index: {e}")
 
 
+MONTH_NAMES_EN = ["January", "February", "March", "April", "May", "June", "July",
+                  "August", "September", "October", "November", "December"]
+MONTH_TAGS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+
+def create_uber_summary_pdf(subject: str, body: str, net_payout: str, filepath: str):
+    """Printable copy of a weekly Uber Eats payout summary mail (plain, nothing invented)."""
+    def clean(text):
+        return text.replace("\u2212", "-").encode('latin-1', 'replace').decode('latin-1')
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Uber Eats - Ichiban Sushi", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.multi_cell(0, 6, clean(subject))
+    pdf.ln(3)
+    pdf.set_font("Arial", "B", 13)
+    pdf.cell(0, 9, clean(f"Nettoutbetalning {net_payout} kr"), ln=True)
+    pdf.ln(3)
+    pdf.set_font("Arial", "", 9)
+    # break the flattened mail text back into readable lines at each amount
+    text = re.sub(r'\s+', ' ', body)
+    text = text.split("Ett enkelt sätt att visa")[0]
+    text = re.sub(r'(\d,\d{2} kr)\s*', r'\1\n', text)
+    for line in text.split("\n"):
+        if line.strip():
+            pdf.multi_cell(0, 5, clean(line.strip()))
+    pdf.output(filepath)
+
+
+def _fetch_uber_invoices(mail, year: int, month: int, window_start, window_end, received_index: dict) -> List[str]:
+    """
+    Uber Eats invoices for a payment month, straight from the mailbox:
+    1. the official monthly statement PDF (monthly_statement_<Month>_<Year>.pdf) when it exists -
+       it lists every payout received during the month;
+    2. otherwise the weekly payout summary mails received in the payment window.
+    """
+    import datetime
+    files: List[str] = []
+    tag = f"{MONTH_TAGS[month - 1]}{year}"
+    statement_name = f"monthly_statement_{MONTH_NAMES_EN[month - 1]}_{year}.pdf".lower()
+    late_end = window_end + datetime.timedelta(days=20)
+    criteria = (f'(FROM "uber.com" SINCE "{window_start.strftime("%d-%b-%Y")}" '
+                f'BEFORE "{late_end.strftime("%d-%b-%Y")}")')
+    result, data = mail.search(None, criteria)
+    if result != "OK":
+        return files
+
+    statement_path = None
+    weekly = []   # (received_date, subject, body, net_payout, num)
+    for num in data[0].split():
+        result, msg_data = mail.fetch(num, "(RFC822)")
+        msg = email.message_from_bytes(msg_data[0][1])
+        try:
+            received = email.utils.parsedate_to_datetime(msg.get("Date")).date()
+        except Exception:
+            continue
+        subject = " ".join(str(email.header.make_header(email.header.decode_header(msg.get("Subject", "")))).split())
+
+        for part in msg.walk():
+            fname = (part.get_filename() or "").lower()
+            if fname == statement_name:
+                statement_path = os.path.abspath(os.path.join(settings.INVOICE_STORAGE_PATH, f"ubereats_{tag}_statement.pdf"))
+                with open(statement_path, "wb") as f:
+                    f.write(part.get_payload(decode=True))
+                print(f"Downloaded Uber monthly statement: {os.path.basename(statement_path)}")
+
+        if "utbetalningssammanfattning" in subject.lower() and window_start <= received < window_end:
+            body = get_html_body(msg) or get_email_body(msg)
+            m = re.search(r'Nettoutbetalning\s*([\d\s\xa0]+,\d{2})\s*kr', body)
+            if m:
+                weekly.append((received, subject, body, " ".join(m.group(1).split()), num.decode()))
+
+    if statement_path:
+        # the statement already contains every payout of the month
+        return [statement_path]
+
+    for received, subject, body, net, num in weekly:
+        name = f"ubereats_{num}_payout_summary_{received.isoformat()}.pdf"
+        path = os.path.abspath(os.path.join(settings.INVOICE_STORAGE_PATH, name))
+        create_uber_summary_pdf(subject, body, net, path)
+        received_index[name] = received.isoformat()
+        files.append(path)
+        print(f"Generated Uber weekly payout summary: {name} ({net} kr)")
+    return files
+
+
 def fetch_email_invoices(year: int, month: int) -> List[str]:
     """
     Connects to Gmail and downloads Wolt, Foodora, and Uber Eats payout reports/invoices.
@@ -309,6 +399,15 @@ def fetch_email_invoices(year: int, month: int) -> List[str]:
             (f'(SUBJECT "underlag" SUBJECT "Foodora" {date_criteria})', "foodora"),
             (f'(FROM "restaurants.sweden@uber.com" {date_criteria})', "ubereats"),
         ]
+
+        # Uber Eats (current format): weekly "utbetalningssammanfattning" mails from noreply@uber.com.
+        # The official monthly statement PDF for month M is attached to a mail sent in the first
+        # days of month M+1, so look a little past the end of the month for it.
+        try:
+            uber_files = _fetch_uber_invoices(mail, year, month, month_start, month_end, received_index)
+            downloaded_files.extend(uber_files)
+        except Exception as e:
+            print(f"Uber email fetch failed: {e}")
 
         for full_query, default_tag in queries:
             result, data = mail.search(None, full_query)
