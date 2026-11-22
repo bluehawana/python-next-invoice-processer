@@ -74,6 +74,24 @@ else
 fi
 
 echo ""
+echo "🔍 Checking that Mac, GitHub and VPS run the SAME code..."
+cd "$(dirname "$0")"
+git fetch -q origin main 2>/dev/null
+LOCAL=$(git rev-parse --short HEAD)
+REMOTE=$(git rev-parse --short origin/main)
+VPS=$(ssh racknerd 'cd /home/harvad/invoice-processor && git rev-parse --short HEAD' 2>/dev/null)
+VPS_DIRTY=$(ssh racknerd 'cd /home/harvad/invoice-processor && git status --porcelain --untracked-files=no | wc -l' 2>/dev/null | tr -d ' ')
+MAC_DIRTY=$(git status --porcelain --untracked-files=no | wc -l | tr -d ' ')
+echo "   Mac:    $LOCAL  (uncommitted files: $MAC_DIRTY)"
+echo "   GitHub: $REMOTE"
+echo "   VPS:    $VPS  (edited on server: $VPS_DIRTY)"
+if [ "$LOCAL" = "$REMOTE" ] && [ "$REMOTE" = "$VPS" ] && [ "$VPS_DIRTY" = "0" ] && [ "$MAC_DIRTY" = "0" ]; then
+    echo "   ✅ All three are identical"
+else
+    echo "   ❌ OUT OF SYNC - run ./setup_month.sh to deploy the Mac version everywhere"
+fi
+
+echo ""
 echo "════════════════════════════════════════════════════════"
 echo ""
 echo "💡 Quick Actions:"

@@ -36,3 +36,5 @@ test_*.py
 # Handwritten amounts stored per month on the server
 backend/handwritten_data/
 backend/handwritten_data_persistent.json
+backend/superseded_invoices/
+*.backup

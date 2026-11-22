@@ -18,6 +18,13 @@ cd "$(dirname "$0")"
 # The Cloudflare Pages project that serves invoices.bluehawana.com
 CF_PROJECT="python-next-invoice-processer"
 
+# One source of truth: the Mac repo -> GitHub -> VPS. Never edit code on the VPS.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "❌ You have uncommitted changes on the Mac. Commit them first so all sides get the same code."
+    git status --short --untracked-files=no
+    exit 1
+fi
+
 echo "🔨 [1/4] Building frontend..."
 (cd frontend && npm run build > /dev/null)
 echo "   ✅ Frontend built"
@@ -31,13 +38,28 @@ git push
 ssh racknerd << 'ENDSSH'
 set -e
 cd /home/harvad/invoice-processor
-git pull --ff-only
+# Anything edited directly on the server is set aside (kept in git stash), then the server
+# is made identical to GitHub main.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    git stash push -m "server-edits-$(date +%Y%m%d-%H%M%S)"
+    echo "⚠️  Server had local edits - saved to git stash"
+fi
+git fetch origin main
+git reset --hard origin/main
 sudo systemctl restart invoice-backend
 echo "Backend deployed and restarted"
 ENDSSH
 echo "   ✅ Backend deployed"
 
 echo "🔍 [4/4] Verifying..."
+LOCAL=$(git rev-parse --short HEAD)
+VPS=$(ssh racknerd 'cd /home/harvad/invoice-processor && git rev-parse --short HEAD')
+if [ "$LOCAL" = "$VPS" ]; then
+    echo "   ✅ Mac, GitHub and VPS all on $LOCAL"
+else
+    echo "   ❌ Mac is on $LOCAL but VPS is on $VPS"
+    exit 1
+fi
 sleep 5
 curl -s "https://api.bluehawana.com/reconciliation-status" | python3 -c "
 import json, sys
